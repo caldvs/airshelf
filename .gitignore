@@ -4,3 +4,8 @@ node_modules/
 dist/
 out/
 .claude/
+
+# Icon build intermediates (keep icon.svg + icon.icns)
+build/icon.iconset/
+build/icon_*.png
+icon-preview.png

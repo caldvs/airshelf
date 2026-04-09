@@ -37,6 +37,8 @@ function setBusy(msg) {
 }
 
 // ---- Bookshelf ----
+let selectedBookId = null;
+
 function renderBooks(books) {
   shelfEl.innerHTML = '';
   if (!books.length) {
@@ -46,15 +48,22 @@ function renderBooks(books) {
     shelfEl.appendChild(empty);
     return;
   }
+  // Reset selection if the selected book no longer exists
+  if (selectedBookId && !books.find(b => b.id === selectedBookId)) {
+    selectedBookId = null;
+  }
   for (const b of books) {
     const card = document.createElement('div');
     card.className = 'book-card';
+    card.dataset.id = b.id;
+    if (b.id === selectedBookId) card.classList.add('selected');
 
     const cover = document.createElement('div');
     cover.className = 'book-cover' + (b.coverUrl ? '' : ' placeholder');
     if (b.coverUrl) {
       const img = document.createElement('img');
       img.src = b.coverUrl;
+      img.draggable = false;
       cover.appendChild(img);
     } else {
       cover.textContent = b.title;
@@ -69,20 +78,54 @@ function renderBooks(books) {
     const convertedLabel = b.converted ? ` · ${b.sourceExt.toUpperCase()}→MOBI` : '';
     size.textContent = `${b.sizeHuman}${convertedLabel}`;
 
-    const del = document.createElement('button');
-    del.className = 'delete-btn';
-    del.textContent = '×';
-    del.title = 'Delete';
-    del.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await window.airshelf.deleteBook(b.id);
-      refresh();
+    card.append(cover, title, size);
+
+    // Click → select
+    card.addEventListener('click', () => {
+      selectedBookId = b.id;
+      document.querySelectorAll('.book-card').forEach(c => c.classList.toggle('selected', c.dataset.id === b.id));
     });
 
-    card.append(cover, title, size, del);
+    // Double-click → open native context menu at that card
+    card.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      window.airshelf.showContextMenu(b.id);
+    });
+
+    // Right-click → native context menu (and select)
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      selectedBookId = b.id;
+      document.querySelectorAll('.book-card').forEach(c => c.classList.toggle('selected', c.dataset.id === b.id));
+      window.airshelf.showContextMenu(b.id);
+    });
+
     shelfEl.appendChild(card);
   }
 }
+
+// Click outside any card clears selection
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.book-card')) return;
+  if (e.target.closest('#btn-add')) return;
+  if (e.target.closest('#btn-menu')) return;
+  if (selectedBookId !== null) {
+    selectedBookId = null;
+    document.querySelectorAll('.book-card.selected').forEach(c => c.classList.remove('selected'));
+  }
+});
+
+// Delete key removes the selected book
+document.addEventListener('keydown', async (e) => {
+  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedBookId) {
+    const target = document.activeElement;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+    e.preventDefault();
+    await window.airshelf.deleteBook(selectedBookId);
+    selectedBookId = null;
+    refresh();
+  }
+});
 
 async function refresh() {
   const books = await window.airshelf.listBooks();
@@ -101,6 +144,17 @@ function handleAddResult(result, total) {
     console.warn('Failures:', errors);
   }
 }
+
+// ⋯ menu button
+document.getElementById('btn-menu').addEventListener('click', (e) => {
+  e.stopPropagation();
+  // If something is selected, open its context menu; otherwise show a generic menu
+  if (selectedBookId) {
+    window.airshelf.showContextMenu(selectedBookId);
+  } else {
+    window.airshelf.showContextMenu(null);
+  }
+});
 
 document.getElementById('btn-add').addEventListener('click', async () => {
   setBusy('Importing & converting…');

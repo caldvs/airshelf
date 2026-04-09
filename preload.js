@@ -14,4 +14,5 @@ contextBridge.exposeInMainWorld('airshelf', {
   onBooksChanged: (cb) => {
     ipcRenderer.on('books:changed', () => cb());
   },
+  showContextMenu: (id) => ipcRenderer.invoke('books:showContextMenu', id),
 });
