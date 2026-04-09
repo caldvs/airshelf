@@ -1,0 +1,15 @@
+{
+  "name": "airshelf",
+  "version": "0.1.0",
+  "description": "Airshelf — wirelessly send ebooks from your Mac to your Kindle",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  }
+}
