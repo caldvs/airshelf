@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('airshelf', {
   listBooks: () => ipcRenderer.invoke('books:list'),
   addBooks: () => ipcRenderer.invoke('books:add'),
+  pickBookPaths: () => ipcRenderer.invoke('books:pick'),
   addBookPaths: (paths) => ipcRenderer.invoke('books:addPaths', paths),
   deleteBook: (id) => ipcRenderer.invoke('books:delete', id),
   serverInfo: () => ipcRenderer.invoke('server:info'),

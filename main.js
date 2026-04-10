@@ -291,6 +291,20 @@ async function addBook(srcPath) {
   if (!SUPPORTED_EXTS.includes(ext)) {
     return { error: `Unsupported format: ${ext}` };
   }
+
+  // Hash the source file to detect duplicates
+  let srcHash = null;
+  try {
+    const buf = fs.readFileSync(srcPath);
+    srcHash = crypto.createHash('sha1').update(buf).digest('hex');
+  } catch (e) {
+    return { error: `Could not read file: ${e.message}` };
+  }
+  const existing = loadMeta().books.find(b => b.hash === srcHash);
+  if (existing) {
+    return { duplicate: existing };
+  }
+
   const id = crypto.randomBytes(8).toString('hex');
   const originalFileName = `${id}${ext}`;
   const originalPath = path.join(booksDir, originalFileName);
@@ -389,6 +403,7 @@ async function addBook(srcPath) {
     ext: kindleExt,
     sourceExt: ext.slice(1),
     converted,
+    hash: srcHash,
     addedAt: Date.now(),
   };
   meta.books.push(book);
@@ -418,6 +433,22 @@ function listBooks() {
 async function migrateExistingBooks() {
   const meta = loadMeta();
   let changed = false;
+
+  // Backfill hashes for books that predate dedup tracking
+  for (const book of meta.books) {
+    if (book.hash) continue;
+    const srcFile = book.originalFile || book.file;
+    if (!srcFile) continue;
+    const srcPath = path.join(booksDir, srcFile);
+    if (!fs.existsSync(srcPath)) continue;
+    try {
+      const buf = fs.readFileSync(srcPath);
+      book.hash = crypto.createHash('sha1').update(buf).digest('hex');
+      changed = true;
+    } catch {}
+  }
+  if (changed) saveMeta(meta);
+
   for (const book of meta.books) {
     const ext = `.${book.ext}`;
     if (KINDLE_NATIVE_EXTS.includes(ext)) continue;
@@ -917,8 +948,18 @@ ipcMain.handle('books:add', async () => {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map(e => e.slice(1)) }],
   });
-  if (result.canceled) return { added: [], errors: [] };
+  if (result.canceled) return { added: [], errors: [], duplicates: [] };
   return await addManyBooks(result.filePaths);
+});
+
+ipcMain.handle('books:pick', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Add Books',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map(e => e.slice(1)) }],
+  });
+  if (result.canceled) return { paths: [] };
+  return { paths: result.filePaths };
 });
 
 ipcMain.handle('books:addPaths', async (_e, paths) => {
@@ -928,16 +969,18 @@ ipcMain.handle('books:addPaths', async (_e, paths) => {
 async function addManyBooks(paths) {
   const added = [];
   const errors = [];
+  const duplicates = [];
   for (const p of paths) {
     try {
       const result = await addBook(p);
       if (result.book) added.push(result.book);
+      else if (result.duplicate) duplicates.push({ path: path.basename(p), title: result.duplicate.title });
       else if (result.error) errors.push({ path: path.basename(p), error: result.error });
     } catch (e) {
       errors.push({ path: path.basename(p), error: e.message });
     }
   }
-  return { added, errors };
+  return { added, errors, duplicates };
 }
 
 ipcMain.handle('books:delete', (_e, id) => deleteBook(id));
