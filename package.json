@@ -1,15 +1,43 @@
 {
   "name": "airshelf",
+  "productName": "Airshelf",
   "version": "0.1.0",
   "description": "Airshelf — wirelessly send ebooks from your Mac to your Kindle",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.airshelf.app",
+    "productName": "Airshelf",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "target": "dir"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "inject-asin.js",
+      "renderer/**/*",
+      "build/icon.icns",
+      "build/icon_256.png",
+      "node_modules/**/*"
+    ]
   },
   "devDependencies": {
-    "electron": "^32.0.0"
+    "@types/adm-zip": "^0.5.8",
+    "@types/node": "^25.5.2",
+    "electron": "^32.0.0",
+    "electron-builder": "^26.8.1",
+    "rimraf": "^6.1.3",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16"
+    "@types/better-sqlite3": "^7.6.13",
+    "adm-zip": "^0.5.16",
+    "better-sqlite3": "^12.8.0"
   }
 }

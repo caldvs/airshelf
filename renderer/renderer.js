@@ -3,6 +3,7 @@ const serverUrlEl = document.getElementById('server-url');
 const dropHint = document.getElementById('drop-hint');
 const toastEl = document.getElementById('toast');
 
+
 // ---- View switching ----
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -39,49 +40,19 @@ function setBusy(msg) {
 // ---- Bookshelf ----
 let selectedBookId = null;
 
-function groupBooks(books) {
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  // Week starts Monday
-  const dayIdx = (now.getDay() + 6) % 7;
-  const startOfWeek = startOfToday - dayIdx * 86400000;
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
-
-  const groups = new Map();
-  const order = [];
-  function bucket(label) {
-    if (!groups.has(label)) {
-      groups.set(label, []);
-      order.push(label);
-    }
-    return groups.get(label);
-  }
-
-  for (const b of books) {
-    const t = b.addedAt || 0;
-    if (t >= startOfToday) bucket('Today').push(b);
-    else if (t >= startOfWeek) bucket('Earlier this week').push(b);
-    else if (t >= startOfMonth) bucket('Earlier this month').push(b);
-    else if (t >= startOfYear) bucket('Earlier this year').push(b);
-    else {
-      const year = new Date(t).getFullYear();
-      bucket(String(year || 'Older')).push(b);
-    }
-  }
-  return order.map(label => ({ label, books: groups.get(label) }));
-}
-
 function renderBooks(books) {
   shelfEl.innerHTML = '';
 
-  // Reset selection if the selected book no longer exists
   if (selectedBookId && !books.find(b => b.id === selectedBookId)) {
     selectedBookId = null;
   }
 
-  const groups = groupBooks(books);
-  if (!groups.length) {
+  const intro = document.createElement('div');
+  intro.className = 'shelf-intro';
+  intro.innerHTML = '<h1>Your library</h1>';
+  shelfEl.appendChild(intro);
+
+  if (!books.length) {
     const empty = document.createElement('div');
     empty.className = 'shelf-empty';
     empty.textContent = 'No books yet. Click + or drop files here.';
@@ -89,19 +60,7 @@ function renderBooks(books) {
     return;
   }
 
-  groups.forEach((group) => {
-    const section = document.createElement('section');
-    section.className = 'shelf-section';
-
-    const header = document.createElement('h2');
-    header.className = 'shelf-section-title';
-    header.textContent = group.label;
-    section.appendChild(header);
-
-    const grid = document.createElement('div');
-    grid.className = 'shelf-grid';
-
-    for (const b of group.books) {
+  for (const b of books) {
       const card = document.createElement('div');
       card.className = 'book-card';
       card.dataset.id = b.id;
@@ -130,10 +89,10 @@ function renderBooks(books) {
         author.textContent = b.year ? `${b.author} · ${b.year}` : b.author;
         card.append(author);
       } else if (b.year) {
-        const year = document.createElement('div');
-        year.className = 'book-author';
-        year.textContent = String(b.year);
-        card.append(year);
+        const yr = document.createElement('div');
+        yr.className = 'book-author';
+        yr.textContent = String(b.year);
+        card.append(yr);
       }
 
       const size = document.createElement('div');
@@ -159,12 +118,8 @@ function renderBooks(books) {
         window.airshelf.showContextMenu(b.id);
       });
 
-      grid.appendChild(card);
-    }
-
-    section.appendChild(grid);
-    shelfEl.appendChild(section);
-  });
+      shelfEl.appendChild(card);
+  }
 }
 
 // Click outside any card clears selection
@@ -173,7 +128,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#btn-add')) return;
   if (selectedBookId !== null) {
     selectedBookId = null;
-    document.querySelectorAll('.book-card.selected').forEach(c => c.classList.remove('selected'));
+    document.querySelectorAll('.book-card.selected, .spine.selected').forEach(c => c.classList.remove('selected'));
   }
 });
 
@@ -280,9 +235,69 @@ document.getElementById('btn-copy').addEventListener('click', () => {
 if (window.airshelf.onBooksChanged) {
   window.airshelf.onBooksChanged(() => {
     refresh();
-    showToast('Library updated', 'success');
   });
 }
+
+// ---- Cover URL modal ----
+const urlModal = document.getElementById('url-modal');
+const urlInput = document.getElementById('url-input');
+const urlOk = document.getElementById('url-ok');
+const urlCancel = document.getElementById('url-cancel');
+let urlTargetId = null;
+
+function openUrlModal(bookId) {
+  urlTargetId = bookId;
+  urlInput.value = '';
+  urlModal.classList.add('active');
+  setTimeout(() => urlInput.focus(), 0);
+}
+function closeUrlModal() {
+  urlModal.classList.remove('active');
+  urlTargetId = null;
+}
+async function submitUrlModal() {
+  const url = urlInput.value.trim();
+  if (!url || !urlTargetId) { closeUrlModal(); return; }
+  const id = urlTargetId;
+  closeUrlModal();
+  setBusy('Fetching cover…');
+  try {
+    const r = await window.airshelf.setCoverFromUrl(id, url);
+    if (r && r.error) showToast(r.error, 'error');
+    else showToast('Cover updated', 'success');
+  } catch (e) {
+    showToast(`Failed: ${e.message}`, 'error');
+  } finally {
+    setBusy(null);
+    refresh();
+  }
+}
+urlOk.addEventListener('click', submitUrlModal);
+urlCancel.addEventListener('click', closeUrlModal);
+urlInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') submitUrlModal();
+  else if (e.key === 'Escape') closeUrlModal();
+});
+urlModal.addEventListener('click', (e) => {
+  if (e.target === urlModal) closeUrlModal();
+});
+if (window.airshelf.onCoverPromptUrl) {
+  window.airshelf.onCoverPromptUrl((id) => openUrlModal(id));
+}
+
+// ---- Theme picker ----
+const savedTheme = localStorage.getItem('airshelf-theme') || 'cloud';
+document.documentElement.setAttribute('data-theme', savedTheme);
+document.querySelectorAll('.theme-swatch').forEach(sw => {
+  if (sw.dataset.theme === savedTheme) sw.classList.add('active');
+  else sw.classList.remove('active');
+  sw.addEventListener('click', () => {
+    const theme = sw.dataset.theme;
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('airshelf-theme', theme);
+    document.querySelectorAll('.theme-swatch').forEach(s => s.classList.toggle('active', s.dataset.theme === theme));
+  });
+});
 
 // ---- Init ----
 refresh();

@@ -7,10 +7,25 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
 
+// Set the app name before anything else — this controls the bold label
+// in the macOS menu bar (which otherwise reads "Electron" during dev).
+app.name = 'Airshelf';
+
+// Customise the About panel so it shows our icon and name instead of Electron's
+app.setAboutPanelOptions({
+  applicationName: 'Airshelf',
+  applicationVersion: '0.1.0',
+  version: '',
+  copyright: 'Send ebooks to your Kindle over Wi-Fi',
+  iconPath: path.join(__dirname, 'build', 'icon_256.png'),
+});
+
 const PORT = parseInt(process.env.PORT, 10) || 6790;
 
 // Files the Kindle experimental browser can download directly
-const KINDLE_NATIVE_EXTS = ['.mobi', '.prc', '.azw', '.txt'];
+const { injectAmazonAsin, fakeAsinForId } = require('./inject-asin.js');
+
+const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us
 const CONVERTIBLE_EXTS = [
   '.epub', '.azw3', '.fb2', '.fbz', '.lit', '.lrf', '.pdb', '.pdf',
@@ -31,6 +46,61 @@ function findEbookConvert() {
   return null;
 }
 
+function findEbookMeta() {
+  const candidates = [
+    '/opt/homebrew/bin/ebook-meta',
+    '/usr/local/bin/ebook-meta',
+    '/Applications/calibre.app/Contents/MacOS/ebook-meta',
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+  return null;
+}
+
+// Inject a cover into an existing MOBI/EPUB using Calibre's ebook-meta.
+// This is the reliable way to make the Kindle library show a thumbnail.
+function setCoverMetadata(filePath, coverPath) {
+  return new Promise((resolve) => {
+    const bin = findEbookMeta();
+    if (!bin || !fs.existsSync(filePath) || !fs.existsSync(coverPath)) {
+      return resolve(false);
+    }
+    execFile(bin, [filePath, '--cover', coverPath], {
+      timeout: 60000,
+      maxBuffer: 10 * 1024 * 1024,
+    }, (err, stdout, stderr) => {
+      if (err) {
+        console.warn(`ebook-meta cover inject failed for ${filePath}:`, stderr || err.message);
+        return resolve(false);
+      }
+      resolve(true);
+    });
+  });
+}
+
+// Extract a cover from any Calibre-supported format (AZW3, MOBI, PDF, etc.)
+// via `ebook-meta --get-cover`. EPUB has its own direct zip-based extractor;
+// this is the fallback for everything else.
+function extractCoverViaCalibre(filePath, outPath) {
+  return new Promise((resolve) => {
+    const bin = findEbookMeta();
+    if (!bin || !fs.existsSync(filePath)) return resolve(false);
+    execFile(bin, [filePath, `--get-cover=${outPath}`], {
+      timeout: 60000,
+      maxBuffer: 10 * 1024 * 1024,
+    }, (err) => {
+      if (err) return resolve(false);
+      try {
+        if (fs.existsSync(outPath) && fs.statSync(outPath).size > 1000) {
+          return resolve(true);
+        }
+      } catch {}
+      resolve(false);
+    });
+  });
+}
+
 // Downsize a cover image in place using macOS sips (or ignore if unavailable).
 // Kindle browser renders large JPEGs slowly line-by-line, so we keep them small.
 function resizeCoverInPlace(filePath, maxDim = 500) {
@@ -48,11 +118,24 @@ function resizeCoverInPlace(filePath, maxDim = 500) {
   });
 }
 
-function convertToMobi(srcPath, outPath) {
+// Convert any input to AZW3 (Amazon's KF8 format). We use AZW3 instead of
+// MOBI because Kindle's library indexer treats .azw3 files as native
+// Amazon ebooks and reliably generates library thumbnails for them, whereas
+// .mobi files are treated as "Personal Documents" and thumbnail generation
+// is best-effort.
+function convertToAzw3(srcPath, outPath, coverPath = null) {
   return new Promise((resolve, reject) => {
     const bin = findEbookConvert();
     if (!bin) return reject(new Error('Calibre ebook-convert not found. Install Calibre.'));
-    execFile(bin, [srcPath, outPath, '--output-profile', 'kindle_pw3'], {
+    const args = [
+      srcPath,
+      outPath,
+      '--output-profile', 'kindle_pw3',
+    ];
+    if (coverPath && fs.existsSync(coverPath)) {
+      args.push('--cover', coverPath);
+    }
+    execFile(bin, args, {
       timeout: 300000,
       maxBuffer: 10 * 1024 * 1024,
     }, (err, stdout, stderr) => {
@@ -61,6 +144,9 @@ function convertToMobi(srcPath, outPath) {
     });
   });
 }
+
+// Backwards-compat alias used by older code paths
+const convertToMobi = convertToAzw3;
 
 let mainWindow = null;
 let server = null;
@@ -212,6 +298,8 @@ function guessAuthorFromFilename(raw) {
 
 // Query Open Library search for a book. Returns the first matching doc or null.
 // Tries multiple query variants so that messy filename-derived titles still match.
+// Biases toward English editions so we don't e.g. pick a Spanish cover for an
+// English book.
 async function searchOpenLibrary(title, author) {
   if (!title) return null;
   const variants = new Set();
@@ -222,39 +310,35 @@ async function searchOpenLibrary(title, author) {
   // Fall back to the raw title
   variants.add(title);
 
+  const isEnglish = (doc) => Array.isArray(doc.language) && doc.language.includes('eng');
+  // Score a candidate: English + has cover > English only > has cover > anything
+  const score = (doc) => (isEnglish(doc) ? 2 : 0) + (doc.cover_i ? 1 : 0);
+
+  let best = null;
+  let bestScore = -1;
   for (const variant of variants) {
     if (!variant || variant.length < 2) continue;
     try {
       const q = new URLSearchParams({ title: variant });
       if (author) q.set('author', author);
-      q.set('limit', '1');
+      q.set('limit', '5');
       const res = await fetch(`https://openlibrary.org/search.json?${q.toString()}`, {
         headers: { 'User-Agent': 'Airshelf/0.1 (ebook helper)' },
       });
       if (!res.ok) continue;
       const data = await res.json();
-      const doc = data.docs && data.docs[0];
-      if (doc && doc.cover_i) return doc; // prefer docs with a cover
-      if (doc && !data.docs[0]._seen) data.docs[0]._seen = true;
+      const docs = Array.isArray(data.docs) ? data.docs : [];
+      for (const doc of docs) {
+        const s = score(doc);
+        if (s > bestScore) {
+          best = doc;
+          bestScore = s;
+          if (bestScore === 3) return best; // English + cover, can't beat it
+        }
+      }
     } catch {}
   }
-  // Second pass — accept matches without cover_i
-  for (const variant of variants) {
-    if (!variant || variant.length < 2) continue;
-    try {
-      const q = new URLSearchParams({ title: variant });
-      if (author) q.set('author', author);
-      q.set('limit', '1');
-      const res = await fetch(`https://openlibrary.org/search.json?${q.toString()}`, {
-        headers: { 'User-Agent': 'Airshelf/0.1 (ebook helper)' },
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const doc = data.docs && data.docs[0];
-      if (doc) return doc;
-    } catch {}
-  }
-  return null;
+  return best;
 }
 
 // Download a cover image for an Open Library doc. Returns true on success.
@@ -284,6 +368,25 @@ async function downloadOpenLibraryCover(doc, outPath) {
 async function fetchCoverFromOpenLibrary(title, author, outPath) {
   const doc = await searchOpenLibrary(title, author);
   return doc ? await downloadOpenLibraryCover(doc, outPath) : false;
+}
+
+// Fetch a description for a book from Open Library's works API.
+// Falls back gracefully to null if the API is unreachable or has no description.
+async function fetchOpenLibraryDescription(doc) {
+  try {
+    const key = doc.key; // e.g. "/works/OL12345W"
+    if (!key) return null;
+    const res = await fetch(`https://openlibrary.org${key}.json`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.description) return null;
+    // description can be a string or { type: '/type/text', value: '...' }
+    return typeof data.description === 'string'
+      ? data.description
+      : (data.description.value || null);
+  } catch {
+    return null;
+  }
 }
 
 async function addBook(srcPath) {
@@ -326,6 +429,12 @@ async function addBook(srcPath) {
       await resizeCoverInPlace(coverCandidate);
     }
   }
+  // Fallback for non-EPUB formats (AZW3, MOBI, PDF…): ask Calibre for the
+  // embedded cover before resorting to Open Library.
+  if (!coverFile && await extractCoverViaCalibre(originalPath, coverCandidate)) {
+    coverFile = `${id}.cover`;
+    await resizeCoverInPlace(coverCandidate);
+  }
   // Fall back to the filename and clean it up
   const rawBase = path.basename(srcPath, ext);
   if (!title) title = rawBase;
@@ -334,21 +443,19 @@ async function addBook(srcPath) {
   if (author) author = author.replace(/\s+/g, ' ').trim();
 
   // Always query Open Library — use the canonical title/author/year when we get
-  // a confident match, and rescue missing covers.
+  // a confident match, and rescue missing covers + descriptions.
+  let description = null;
   try {
     const doc = await searchOpenLibrary(title, author);
     if (doc) {
       const olTitle = doc.title;
       if (olTitle && titlesMatch(olTitle, title)) {
-        // Strong match. Use OL's title only if it's as short or shorter
-        // than ours (otherwise ours is probably the cleaner trimmed version).
         if (olTitle.length <= title.length + 4) {
           title = olTitle;
         }
         if (doc.author_name && doc.author_name[0]) author = doc.author_name[0];
         if (doc.first_publish_year) year = doc.first_publish_year;
       } else {
-        // Weak match: still use OL data only for missing fields
         if (!author && doc.author_name && doc.author_name[0]) author = doc.author_name[0];
         if (!year && doc.first_publish_year) year = doc.first_publish_year;
       }
@@ -359,32 +466,65 @@ async function addBook(srcPath) {
           await resizeCoverInPlace(coverCandidate);
         }
       }
+      // Grab description from first_sentence or fetch from works API
+      if (doc.first_sentence && doc.first_sentence[0]) {
+        description = doc.first_sentence[0];
+      } else {
+        description = await fetchOpenLibraryDescription(doc);
+      }
     }
   } catch (e) {
     console.warn(`Metadata enrichment failed for "${title}":`, e.message);
   }
 
-  // Ensure we have a Kindle-compatible file to serve
+  // Ensure we have a Kindle-compatible file to serve.
+  // We convert non-Kindle formats to .mobi. We also re-convert native Kindle
+  // formats when we have a rescued cover to inject (so the Kindle library
+  // shows the right thumbnail).
   let kindleFile;
   let kindleExt;
   let converted = false;
-  if (KINDLE_NATIVE_EXTS.includes(ext)) {
-    kindleFile = originalFileName;
-    kindleExt = ext.slice(1);
-  } else {
-    const mobiName = `${id}.mobi`;
-    const mobiPath = path.join(booksDir, mobiName);
+  const coverFullPath = coverFile ? path.join(booksDir, coverFile) : null;
+  const shouldConvert = !KINDLE_NATIVE_EXTS.includes(ext) || !!coverFullPath;
+
+  // Convert everything to AZW3 (Amazon's KF8). The .azw3 extension and
+  // format make Kindle's library indexer treat the file as a native Amazon
+  // ebook, which is the only reliable way to get library thumbnails for
+  // sideloaded books on PW3-era hardware.
+  if (ext !== '.azw3') {
+    const azwName = `${id}.azw3`;
+    const azwPath = path.join(booksDir, azwName);
     try {
-      await convertToMobi(originalPath, mobiPath);
+      await convertToAzw3(originalPath, azwPath, coverFullPath);
     } catch (e) {
-      // Clean up the copied original and bail
       try { fs.unlinkSync(originalPath); } catch {}
       if (coverFile) { try { fs.unlinkSync(path.join(booksDir, coverFile)); } catch {} }
       return { error: `Conversion failed: ${e.message}` };
     }
-    kindleFile = mobiName;
-    kindleExt = 'mobi';
+    kindleFile = azwName;
+    kindleExt = 'azw3';
     converted = true;
+  } else {
+    kindleFile = originalFileName;
+    kindleExt = 'azw3';
+  }
+
+  // Patch the cover into the served file via ebook-meta — this is the
+  // reliable way to make sure the Kindle library shows the thumbnail.
+  let coverEmbedded = false;
+  const servedPath = path.join(booksDir, kindleFile);
+  if (coverFullPath) {
+    coverEmbedded = await setCoverMetadata(servedPath, coverFullPath);
+  }
+
+  // Inject a fake Amazon ASIN + cdetype=EBOK so Kindle's library indexer
+  // treats this as a native Amazon ebook (and reliably generates the
+  // library cover thumbnail) instead of a "personal document".
+  let asinInjected = false;
+  try {
+    asinInjected = injectAmazonAsin(servedPath, fakeAsinForId(id));
+  } catch (e) {
+    console.warn(`ASIN injection failed for "${title}":`, e.message);
   }
 
   const kindleSize = fs.statSync(path.join(booksDir, kindleFile)).size;
@@ -403,7 +543,10 @@ async function addBook(srcPath) {
     ext: kindleExt,
     sourceExt: ext.slice(1),
     converted,
+    description,
     hash: srcHash,
+    coverEmbedded,
+    asinInjected,
     addedAt: Date.now(),
   };
   meta.books.push(book);
@@ -491,13 +634,33 @@ async function migrateExistingBooks() {
       saveMeta(meta2);
     }
 
-    if (book.cover && book.author && book.year) continue;
+    // Try to rescue a missing cover from the original file itself before
+    // falling back to Open Library. Handles AZW3/MOBI/PDF via Calibre and
+    // EPUB via the direct zip extractor.
+    if (!book.cover && book.originalFile) {
+      const origPath = path.join(booksDir, book.originalFile);
+      if (fs.existsSync(origPath)) {
+        const coverCandidate = path.join(booksDir, `${book.id}.cover`);
+        const origExt = path.extname(book.originalFile).toLowerCase();
+        let ok = false;
+        if (origExt === '.epub') ok = extractEpubCover(origPath, coverCandidate);
+        if (!ok) ok = await extractCoverViaCalibre(origPath, coverCandidate);
+        if (ok) {
+          await resizeCoverInPlace(coverCandidate);
+          book.cover = `${book.id}.cover`;
+          enrichChanged = true;
+          saveMeta(meta2);
+          if (mainWindow) mainWindow.webContents.send('books:changed');
+        }
+      }
+    }
+
+    if (book.cover && book.author && book.year && book.description) continue;
     try {
       console.log(`Enriching "${book.title}"…`);
       const doc = await searchOpenLibrary(book.title, book.author);
       if (!doc) continue;
       let dirty = false;
-      // Strong match → normalise canonical title (only if OL's isn't bloated)
       if (doc.title && titlesMatch(doc.title, book.title) && doc.title !== book.title && doc.title.length <= book.title.length + 4) {
         book.title = doc.title;
         dirty = true;
@@ -517,6 +680,15 @@ async function migrateExistingBooks() {
           await resizeCoverInPlace(coverCandidate);
           book.cover = `${book.id}.cover`;
           dirty = true;
+        }
+      }
+      if (!book.description) {
+        if (doc.first_sentence && doc.first_sentence[0]) {
+          book.description = doc.first_sentence[0];
+          dirty = true;
+        } else {
+          const desc = await fetchOpenLibraryDescription(doc);
+          if (desc) { book.description = desc; dirty = true; }
         }
       }
       if (dirty) {
@@ -545,6 +717,76 @@ async function migrateExistingBooks() {
     } catch {}
   }
   if (mainWindow) mainWindow.webContents.send('books:changed');
+
+  // ASIN-injection backfill: stamp every book's served file with a fake
+  // Amazon ASIN + cdetype=EBOK so Kindle treats it as a native Amazon
+  // ebook. Runs before the AZW3 rebuild so already-AZW3 books get patched.
+  {
+    const m = loadMeta();
+    for (const book of m.books) {
+      if (book.asinInjected) continue;
+      if (!book.file) continue;
+      const fp = path.join(booksDir, book.file);
+      if (!fs.existsSync(fp)) continue;
+      try {
+        console.log(`Injecting ASIN into "${book.title}"…`);
+        injectAmazonAsin(fp, fakeAsinForId(book.id));
+        book.asinInjected = true;
+        try { book.size = fs.statSync(fp).size; } catch {}
+        saveMeta(m);
+        if (mainWindow) mainWindow.webContents.send('books:changed');
+      } catch (e) {
+        console.warn(`ASIN backfill failed for "${book.title}":`, e.message);
+      }
+    }
+  }
+
+  // Rebuild backfill: re-convert any book whose served file isn't AZW3 yet.
+  // The .azw3 extension is what makes Kindle's library indexer treat the
+  // file as a real Amazon ebook and reliably generate cover thumbnails.
+  const meta3 = loadMeta();
+  for (const book of meta3.books) {
+    if (book.azw3Built) continue;
+    if (!book.file) continue;
+    const coverPath = book.cover ? path.join(booksDir, book.cover) : null;
+    const origRel = book.originalFile || book.file;
+    const origPath = path.join(booksDir, origRel);
+    if (!fs.existsSync(origPath)) continue;
+
+    const azwName = `${book.id}.azw3`;
+    const tmpOut = path.join(booksDir, `${book.id}_rebuild.azw3`);
+    try {
+      console.log(`Rebuilding "${book.title}" as AZW3…`);
+      await convertToAzw3(origPath, tmpOut, coverPath && fs.existsSync(coverPath) ? coverPath : null);
+      if (!fs.existsSync(tmpOut)) {
+        throw new Error(`Calibre did not produce ${tmpOut}`);
+      }
+      fs.renameSync(tmpOut, path.join(booksDir, azwName));
+      // Clean up the old .mobi if it's no longer the served file
+      const oldFile = book.file;
+      if (oldFile && oldFile !== azwName) {
+        try { fs.unlinkSync(path.join(booksDir, oldFile)); } catch {}
+      }
+      book.file = azwName;
+      book.ext = 'azw3';
+      book.azw3Built = true;
+      book.coverEmbedded = !!coverPath;
+      // Stamp the rebuilt file with the fake Amazon ASIN so Kindle's
+      // library indexer treats it as a native ebook.
+      try {
+        injectAmazonAsin(path.join(booksDir, azwName), fakeAsinForId(book.id));
+        book.asinInjected = true;
+      } catch (e) {
+        console.warn(`ASIN injection failed for "${book.title}":`, e.message);
+      }
+      try { book.size = fs.statSync(path.join(booksDir, azwName)).size; } catch {}
+      saveMeta(meta3);
+      if (mainWindow) mainWindow.webContents.send('books:changed');
+    } catch (e) {
+      try { fs.unlinkSync(tmpOut); } catch {}
+      console.warn(`AZW3 rebuild failed for "${book.title}":`, e.message);
+    }
+  }
 }
 
 // ---------- Networking ----------
@@ -674,10 +916,10 @@ function renderIndexHtml() {
         <td class="info-cell" valign="middle">
           <div class="title">${escapeHtml(b.title)}</div>
           ${authorLine}
-          <div class="meta">${b.ext.toUpperCase()} &middot; ${humanSize(b.size)}</div>
+          <div class="meta">AZW3 &middot; ${humanSize(b.size)}</div>
         </td>
         <td class="btn-cell" valign="middle" align="right">
-          <a class="dl-btn" href="/download/${b.id}.${b.ext}">Download</a>
+          <a class="dl-btn" href="/download/${b.id}">Download</a>
         </td>
       </tr>
       <tr><td colspan="3" class="spacer"></td></tr>
@@ -859,6 +1101,10 @@ function startServer() {
         res.end(buf);
         return;
       }
+      // Match Bookify's URL pattern: /download/<id> with no extension.
+      // PW3's experimental browser pre-checks URL extensions against a
+      // whitelist; by omitting the extension entirely, we bypass that check
+      // and let Content-Disposition set the filename instead.
       const dlMatch = url.pathname.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/);
       if (dlMatch) {
         const id = dlMatch[1];
@@ -866,17 +1112,15 @@ function startServer() {
         if (!book) { res.writeHead(404); res.end('Not found'); return; }
         const filePath = path.join(booksDir, book.file);
         const stat = fs.statSync(filePath);
-        // Use the book title + the Kindle-compatible extension so Kindle accepts the download
         const baseName = (book.title || 'book').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 80);
         const downloadName = `${baseName}.${book.ext}`;
-        const mimeByExt = {
-          mobi: 'application/x-mobipocket-ebook',
-          prc: 'application/x-mobipocket-ebook',
-          azw: 'application/vnd.amazon.ebook',
-          txt: 'text/plain',
-        };
+        // Kindle's browser treats Content-Disposition: attachment as a
+        // plain "download" (stays in downloads, no library indexing, no
+        // cover thumbnail). Omitting it (or using inline) makes Kindle
+        // import the file as a proper "document" — which IS indexed and
+        // DOES get a library cover thumbnail. This is what Bookify does.
         res.writeHead(200, {
-          'Content-Type': mimeByExt[book.ext] || 'application/octet-stream',
+          'Content-Type': 'application/vnd.amazon.ebook',
           'Content-Length': stat.size,
           'Content-Disposition': `attachment; filename="${downloadName}"`,
         });
@@ -935,11 +1179,18 @@ app.on('window-all-closed', () => {
 // ---------- IPC ----------
 
 ipcMain.handle('books:list', () => {
-  return listBooks().map(b => ({
-    ...b,
-    coverUrl: b.cover ? `file://${path.join(booksDir, b.cover)}` : null,
-    sizeHuman: humanSize(b.size),
-  }));
+  return listBooks().map(b => {
+    let coverUrl = null;
+    if (b.cover) {
+      const p = path.join(booksDir, b.cover);
+      // Append mtime as a cache-buster so replaced covers actually re-render;
+      // the filename itself is stable (`<id>.cover`) across re-fetches.
+      let v = '';
+      try { v = `?v=${fs.statSync(p).mtimeMs | 0}`; } catch {}
+      coverUrl = `file://${p}${v}`;
+    }
+    return { ...b, coverUrl, sizeHuman: humanSize(b.size) };
+  });
 });
 
 ipcMain.handle('books:add', async () => {
@@ -995,6 +1246,67 @@ ipcMain.handle('server:info', () => {
 });
 
 ipcMain.handle('open:external', (_e, url) => shell.openExternal(url));
+
+// Write a new cover for an existing book from an in-memory buffer. Shared
+// by the "set cover from URL" and "choose cover image" flows. Resizes,
+// re-injects the cover into the served file so the Kindle thumbnail refreshes,
+// and saves metadata.
+async function setBookCoverFromBuffer(bookId, buf) {
+  if (!buf || buf.length < 1000) return { error: 'Image too small — likely a placeholder.' };
+  const meta = loadMeta();
+  const target = meta.books.find(b => b.id === bookId);
+  if (!target) return { error: 'Book not found.' };
+  const coverPath = path.join(booksDir, `${bookId}.cover`);
+  try {
+    fs.writeFileSync(coverPath, buf);
+  } catch (e) {
+    return { error: `Could not write cover: ${e.message}` };
+  }
+  await resizeCoverInPlace(coverPath);
+  target.cover = `${bookId}.cover`;
+  // Re-inject into the served Kindle file so the device thumbnail updates
+  const servedPath = target.file ? path.join(booksDir, target.file) : null;
+  if (servedPath && fs.existsSync(servedPath)) {
+    target.coverEmbedded = await setCoverMetadata(servedPath, coverPath);
+  }
+  saveMeta(meta);
+  if (mainWindow) mainWindow.webContents.send('books:changed');
+  return { ok: true };
+}
+
+ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
+  if (!url || typeof url !== 'string') return { error: 'No URL provided.' };
+  let parsed;
+  try { parsed = new URL(url); } catch { return { error: 'Invalid URL.' }; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { error: 'URL must be http(s).' };
+  }
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'Airshelf/0.1' } });
+    if (!res.ok) return { error: `Server returned ${res.status}.` };
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.startsWith('image/')) return { error: `Not an image (got ${ct || 'unknown'}).` };
+    const buf = Buffer.from(await res.arrayBuffer());
+    return await setBookCoverFromBuffer(bookId, buf);
+  } catch (e) {
+    return { error: `Download failed: ${e.message}` };
+  }
+});
+
+ipcMain.handle('cover:setFromFile', async (_e, bookId) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose cover image',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  try {
+    const buf = fs.readFileSync(result.filePaths[0]);
+    return await setBookCoverFromBuffer(bookId, buf);
+  } catch (e) {
+    return { error: `Could not read file: ${e.message}` };
+  }
+});
 
 // ---------- Context menu ----------
 
@@ -1064,11 +1376,17 @@ ipcMain.handle('books:showContextMenu', (e, id) => {
     {
       label: 'Copy download URL',
       click: () => {
-        const url = `http://${getLocalIP()}:${PORT}/download/${book.id}.${book.ext}`;
+        const url = `http://${getLocalIP()}:${PORT}/download/${book.id}`;
         require('electron').clipboard.writeText(url);
       },
     },
     { type: 'separator' },
+    {
+      label: 'Set cover from URL…',
+      click: () => {
+        if (mainWindow) mainWindow.webContents.send('cover:prompt-url', book.id);
+      },
+    },
     {
       label: 'Re-fetch cover from Open Library',
       click: async () => {

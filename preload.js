@@ -16,4 +16,8 @@ contextBridge.exposeInMainWorld('airshelf', {
     ipcRenderer.on('books:changed', () => cb());
   },
   showContextMenu: (id) => ipcRenderer.invoke('books:showContextMenu', id),
+  setCoverFromUrl: (id, url) => ipcRenderer.invoke('cover:setFromUrl', id, url),
+  onCoverPromptUrl: (cb) => {
+    ipcRenderer.on('cover:prompt-url', (_e, id) => cb(id));
+  },
 });
