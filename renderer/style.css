@@ -1021,6 +1021,14 @@ body {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-modal);
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+/* The input has no border of its own, so focus is signalled at the box
+   level via :focus-within. Mirrors the URL modal's :focus styling but
+   applied one element up because the visual surface is the box. */
+.search-palette-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-modal), 0 0 0 3px color-mix(in oklch, var(--accent) 25%, transparent);
 }
 .search-palette-icon { color: var(--text-sub); flex-shrink: 0; }
 .search-palette-box input[type="search"] {

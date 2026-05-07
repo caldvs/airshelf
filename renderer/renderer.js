@@ -49,7 +49,7 @@ function readReaderProgress(id) {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
 }
 
-function renderBooks(books) {
+function renderBooks(books, opts = {}) {
   shelfEl.innerHTML = '';
 
   if (selectedBookId && !books.find(b => b.id === selectedBookId)) {
@@ -64,7 +64,7 @@ function renderBooks(books) {
   if (!books.length) {
     const empty = document.createElement('div');
     empty.className = 'shelf-empty';
-    empty.textContent = 'No books yet. Click + or drop files here.';
+    empty.textContent = opts.emptyMessage || 'No books yet. Click + or drop files here.';
     shelfEl.appendChild(empty);
     return;
   }
@@ -230,7 +230,14 @@ function bookMatchesQuery(b, q) {
 function applyBookView() {
   const q = searchQuery.trim().toLowerCase();
   const filtered = q ? allBooks.filter(b => bookMatchesQuery(b, q)) : allBooks;
-  renderBooks(filtered);
+  // Distinguish "no books in library" from "no matches for filter" — the
+  // default empty copy ("No books yet. Click + or drop…") would be
+  // misleading when the library has books but the active query excludes
+  // them all.
+  const opts = q && filtered.length === 0
+    ? { emptyMessage: `No matches for “${searchQuery.trim()}”.` }
+    : {};
+  renderBooks(filtered, opts);
   updateSearchStatus(q, filtered.length);
 }
 
