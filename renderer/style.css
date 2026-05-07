@@ -901,38 +901,121 @@ body {
   color: var(--text-sub);
 }
 
+/* Per-theme swatch colors. Lifted out of inline `style="..."` attributes
+ * so the static markup contains no inline styles. The CSP still allows
+ * 'unsafe-inline' for style-src because runtime DOM mutations (progress
+ * bar width, reader error fallback) need it. */
+.theme-swatch[data-theme="cloud"] .swatch-color { background: #f7f8fa; border-color: #dcdce3; }
+.theme-swatch[data-theme="cloud"] .swatch-dot { background: #2563eb; }
+.theme-swatch[data-theme="sand"] .swatch-color { background: #f5f0e8; border-color: #d6cab5; }
+.theme-swatch[data-theme="sand"] .swatch-dot { background: #b45309; }
+.theme-swatch[data-theme="slate"] .swatch-color { background: #1a1d23; border-color: #3e444d; }
+.theme-swatch[data-theme="slate"] .swatch-dot { background: #6d9fff; }
+.theme-swatch[data-theme="rose"] .swatch-color { background: #fdf2f4; border-color: #e4cdd2; }
+.theme-swatch[data-theme="rose"] .swatch-dot { background: #be185d; }
+.theme-swatch[data-theme="moss"] .swatch-color { background: #f0f4ef; border-color: #c4d1bf; }
+.theme-swatch[data-theme="moss"] .swatch-dot { background: #15803d; }
+
 .setting-label { font-weight: 600; }
 .setting-value { color: var(--text-sub); font-family: var(--font-mono); }
 
-.setting-row-stack {
-  display: block;
-  padding: 16px 18px;
+.setting-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
 }
-.setting-row-stack .setting-sub {
+.setting-row-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.setting-row-sub {
+  font-size: var(--text-sm);
   color: var(--text-sub);
-  font-size: var(--text-base);
+  font-family: var(--font-mono);
+  word-break: break-all;
+  min-height: 1em;
+}
+.setting-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 4px;
 }
-.setting-row-stack .setting-actions {
-  margin-top: 12px;
-}
 .setting-btn {
-  padding: var(--space-2) 14px;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
-  background: var(--panel);
-  color: var(--text);
-  font-family: inherit;
-  font-size: var(--text-base);
-  font-weight: 500;
+  background: var(--accent);
+  color: #fff;
   cursor: pointer;
-  transition: background var(--duration-fast) var(--easing), border-color var(--duration-fast) var(--easing);
+  transition: transform 100ms;
 }
-.setting-btn:hover { border-color: var(--accent); }
+.setting-btn:hover { background: var(--accent-hover); }
 .setting-btn:active { transform: translateY(1px); }
-.setting-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.setting-btn-danger { color: #b91c1c; border-color: rgba(185, 28, 28, 0.4); }
-.setting-btn-danger:hover { border-color: #b91c1c; background: rgba(185, 28, 28, 0.06); }
+.setting-btn-ghost {
+  background: transparent;
+  color: var(--text);
+}
+.setting-btn-ghost:hover { background: var(--panel); }
+.setting-btn.hidden { display: none; }
+
+/* "Missing dependency" banner above the bookshelf. Mirrors .help-box visually
+   but adds inline action buttons. */
+.missing-dep {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  margin: 0 0 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--help-border);
+  border-radius: var(--radius-md);
+  color: var(--help-text);
+  font-size: var(--text-md);
+}
+.missing-dep.hidden { display: none; }
+.missing-dep-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.missing-dep-text strong { color: var(--text); }
+.missing-dep-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.missing-dep-btn {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--help-border);
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+}
+.missing-dep-btn:hover { background: var(--panel); }
+.missing-dep-close {
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-sub);
+  cursor: pointer;
+}
+.missing-dep-close:hover { background: var(--bg-elev); color: var(--text); }
 
 /* ============================================================
    Toast
@@ -1303,3 +1386,13 @@ body.reader-light .reader {
   --reader-zone-hover-bg: rgba(0, 0, 0, 0.03);
   --reader-progress-track: rgba(0, 0, 0, 0.1);
 }
+
+/* Destructive variant for restore — overrides the accent fill with a
+   red-tinted outline. */
+.setting-btn-danger {
+  background: transparent;
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.4);
+}
+.setting-btn-danger:hover { border-color: #b91c1c; background: rgba(185, 28, 28, 0.06); }
+.setting-btn:disabled { opacity: 0.5; cursor: not-allowed; }

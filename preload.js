@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld('airshelf', {
   onCoverPromptUrl: (cb) => {
     ipcRenderer.on('cover:prompt-url', (_e, id) => cb(id));
   },
+  calibreStatus: () => ipcRenderer.invoke('calibre:status'),
+  calibreLocate: () => ipcRenderer.invoke('calibre:locate'),
+  calibreClear: () => ipcRenderer.invoke('calibre:clear'),
   backupLibrary: () => ipcRenderer.invoke('library:backup'),
   restoreLibrary: () => ipcRenderer.invoke('library:restore'),
 });
