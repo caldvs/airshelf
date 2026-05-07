@@ -230,11 +230,11 @@ function bookMatchesQuery(b, q) {
 function applyBookView() {
   const q = searchQuery.trim().toLowerCase();
   const filtered = q ? allBooks.filter(b => bookMatchesQuery(b, q)) : allBooks;
-  // Distinguish "no books in library" from "no matches for filter" — the
-  // default empty copy ("No books yet. Click + or drop…") would be
-  // misleading when the library has books but the active query excludes
-  // them all.
-  const opts = q && filtered.length === 0
+  // Three empty cases: (a) library is empty, (b) library has books but the
+  // active query excludes them all, (c) no query and library is empty. We
+  // only override the default "No books yet…" copy in case (b), which is
+  // the only one where a "No matches" message is actually accurate.
+  const opts = q && filtered.length === 0 && allBooks.length > 0
     ? { emptyMessage: `No matches for “${searchQuery.trim()}”.` }
     : {};
   renderBooks(filtered, opts);
@@ -420,8 +420,11 @@ function openSearchPalette() {
   searchPalette.classList.add('active');
   searchInput.value = searchQuery;
   // Defer focus until after the paint that adds .active so the keyboard
-  // doesn't appear and immediately get blurred by the layout shift.
+  // doesn't appear and immediately get blurred by the layout shift. The
+  // .active check inside guards against the user hitting ⌘K twice quickly:
+  // close-then-RAF would otherwise put focus into a hidden input.
   requestAnimationFrame(() => {
+    if (!searchPalette.classList.contains('active')) return;
     searchInput.focus();
     searchInput.select();
   });
@@ -463,8 +466,13 @@ document.addEventListener('keydown', (e) => {
   // another input has focus (e.g. the cover-URL modal), ⌘K should still
   // surface the palette. Browsers don't bind anything to ⌘K in text inputs
   // so there's nothing useful to preserve.
+  //
+  // Exception: while the reader overlay is active, ⌘K is a no-op. The
+  // reader has its own Escape handler and we don't want the palette to
+  // open over the book and steal subsequent Escape presses.
   const isCmdK = (e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K');
   if (!isCmdK) return;
+  if (document.getElementById('reader')?.classList.contains('active')) return;
   e.preventDefault();
   if (searchPalette.classList.contains('active')) closeSearchPalette();
   else openSearchPalette();
