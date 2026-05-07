@@ -404,7 +404,7 @@ body {
   font-size: var(--text-base);
   font-weight: 600;
   padding: 7px var(--space-3);
-  border-radius: var(--space-2);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: background var(--duration-fast), border-color var(--duration-fast), transform 0.05s;
 }
