@@ -27,11 +27,15 @@ const CONSONANTS = 'bcdfghjklmnpqrstvwxyz'; // 21 — drops the rare/awkward one
 const TOKEN_RE = /^[a-z]{6}$/;
 
 function generatePronounceableToken() {
-  const buf = crypto.randomBytes(6);
   let out = '';
   for (let i = 0; i < 6; i++) {
     const pool = (i % 2 === 0) ? CONSONANTS : VOWELS;
-    out += pool[buf[i] % pool.length];
+    const limit = Math.floor(256 / pool.length) * pool.length;
+    let idx;
+    do {
+      idx = crypto.randomBytes(1)[0];
+    } while (idx >= limit);
+    out += pool[idx % pool.length];
   }
   return out;
 }
