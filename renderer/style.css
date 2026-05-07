@@ -48,6 +48,7 @@
   --z-busy: 999;
   --z-toast: 1001;
   --z-modal: 1002;
+  --z-palette: 1003;
 
   /* Shadow primitives. `--shadow-rgb` lets per-theme overrides shift the
      base hue (e.g. pure black in dark mode) without rewriting every shadow. */
@@ -1003,7 +1004,9 @@ body {
   flex-direction: column;
   align-items: center;
   padding-top: 12vh;
-  z-index: var(--z-modal);
+  /* One step above .modal-backdrop so ⌘K paints over the cover-URL modal
+     (which uses --z-modal) when both are open at once. */
+  z-index: var(--z-palette);
 }
 .search-palette.active { display: flex; }
 

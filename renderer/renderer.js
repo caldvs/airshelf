@@ -394,7 +394,8 @@ document.querySelectorAll('.theme-swatch').forEach(sw => {
 // Toggled by ⌘K / Ctrl+K. Live-filters the shelf as the user types. Filter
 // state survives palette close so a result-narrowed shelf stays narrowed
 // until the user clears the query — closing is just dismissing the palette,
-// not the search. ESC inside the palette clears + closes.
+// not the search. ESC is two-step: the first press clears the query, the
+// second dismisses the palette.
 
 const searchPalette = document.getElementById('search-palette');
 const searchInput = document.getElementById('search-input');
@@ -451,8 +452,10 @@ searchPalette.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  // ⌘K (mac) or Ctrl+K (windows/linux). Don't fire when an input/textarea
-  // already has focus elsewhere — that would trap typing in unrelated forms.
+  // ⌘K (mac) or Ctrl+K (windows/linux). Always-global on purpose — even if
+  // another input has focus (e.g. the cover-URL modal), ⌘K should still
+  // surface the palette. Browsers don't bind anything to ⌘K in text inputs
+  // so there's nothing useful to preserve.
   const isCmdK = (e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K');
   if (!isCmdK) return;
   e.preventDefault();
