@@ -47,14 +47,18 @@
     return 'http://127.0.0.1:6790';
   }
 
+  function setTocOpen(open) {
+    tocEl.classList.toggle('open', open);
+    tocBtn.setAttribute('aria-expanded', String(open));
+  }
+
   async function openReader(bookMeta) {
     if (!bookMeta || !bookMeta.id) return;
     currentBookId = bookMeta.id;
     titleEl.textContent = bookMeta.title || '';
     authorEl.textContent = [bookMeta.author, bookMeta.year].filter(Boolean).join(' · ');
     readerEl.classList.add('active');
-    tocEl.classList.remove('open');
-    tocBtn.setAttribute('aria-expanded', 'false');
+    setTocOpen(false);
 
     // Tear down any previous rendition before swapping books.
     if (rendition) {
@@ -124,9 +128,8 @@
     rendition.on('keydown', handleKeyForward);
     rendition.on('click', () => {
       if (tocEl.classList.contains('open')) {
-        tocEl.classList.remove('open');
+        setTocOpen(false);
       }
-      tocBtn.setAttribute('aria-expanded', 'false');
     });
 
     // Build locations index for the progress slider — backgrounded; the
@@ -180,7 +183,7 @@
         btn.className = `toc-depth-${Math.min(depth, 2)}`;
         btn.addEventListener('click', () => {
           if (rendition) rendition.display(item.href);
-          tocEl.classList.remove('open'); tocBtn.setAttribute('aria-expanded', 'false');
+          setTocOpen(false);
         });
         li.appendChild(btn);
         tocList.appendChild(li);
@@ -214,8 +217,8 @@
   fontUpBtn.addEventListener('click', () => setFontPct(getFontPct() + FONT_STEP));
   fontDownBtn.addEventListener('click', () => setFontPct(getFontPct() - FONT_STEP));
   tocBtn.addEventListener('click', () => {
-    const open = tocEl.classList.toggle('open');
-    tocBtn.setAttribute('aria-expanded', String(open));
+    const open = !tocEl.classList.contains('open');
+    setTocOpen(open);
   });
 
   progressEl.addEventListener('change', () => {
