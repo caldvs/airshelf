@@ -78,7 +78,14 @@
       book = ePub(ab);
     } catch (e) {
       console.error('[reader] fetch failed', e);
-      viewportEl.innerHTML = `<div style="padding:32px;color:#b00;font:14px system-ui">Reader failed to load: ${e.message}</div>`;
+      // Build the error node with textContent rather than interpolating
+      // e.message into innerHTML — if a future code path ever produces an
+      // error message containing attacker-controlled text, an HTML/script
+      // injection here would have full preload-API access.
+      const errEl = document.createElement('div');
+      errEl.style.cssText = 'padding:32px;color:#b00;font:14px system-ui';
+      errEl.textContent = `Reader failed to load: ${e.message}`;
+      viewportEl.replaceChildren(errEl);
       return;
     }
     rendition = book.renderTo(viewportEl, {
