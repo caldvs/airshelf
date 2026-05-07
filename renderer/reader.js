@@ -53,7 +53,8 @@
     titleEl.textContent = bookMeta.title || '';
     authorEl.textContent = [bookMeta.author, bookMeta.year].filter(Boolean).join(' · ');
     readerEl.classList.add('active');
-    tocEl.classList.remove('open'); tocBtn.setAttribute('aria-expanded', 'false');
+    tocEl.classList.remove('open');
+    tocBtn.setAttribute('aria-expanded', 'false');
 
     // Tear down any previous rendition before swapping books.
     if (rendition) {
