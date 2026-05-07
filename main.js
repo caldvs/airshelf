@@ -206,6 +206,8 @@ async function getOrBuildReaderEpub(book) {
   return p;
 }
 
+const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
+
 let mainWindow = null;
 let server = null;
 let booksDir = null;
@@ -214,11 +216,33 @@ let metaFile = null;
 // ---------- Book storage ----------
 
 function loadMeta() {
+  let raw;
   try {
-    return JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+    raw = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
   } catch {
     return { books: [] };
   }
+  if (!raw || !Array.isArray(raw.books)) return { books: [] };
+  // Defense in depth: every metadata field that gets joined with booksDir
+  // and served over HTTP must be a single path component. A tampered
+  // books.json with `book.file = "../../etc/passwd"` would otherwise leak
+  // arbitrary disk contents through /download or /epub.
+  const books = raw.books.filter(b => {
+    if (!b || !isSafeBasename(b.file)) {
+      console.warn('books.json: dropping entry with unsafe `file`:', b && b.file);
+      return false;
+    }
+    if (b.originalFile != null && !isSafeBasename(b.originalFile)) {
+      console.warn('books.json: dropping entry with unsafe `originalFile`:', b.originalFile);
+      return false;
+    }
+    if (b.cover != null && !isSafeBasename(b.cover)) {
+      console.warn('books.json: dropping entry with unsafe `cover`:', b.cover);
+      return false;
+    }
+    return true;
+  });
+  return { ...raw, books };
 }
 
 function saveMeta(meta) {
@@ -1353,7 +1377,18 @@ ipcMain.handle('server:info', () => {
   };
 });
 
-ipcMain.handle('open:external', (_e, url) => shell.openExternal(url));
+ipcMain.handle('open:external', async (_e, url) => {
+  if (!isSafeExternalScheme(url)) {
+    console.warn('open:external: refusing non-http(s) URL:', url);
+    return { ok: false, error: 'Only http(s) URLs are allowed.' };
+  }
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 // Write a new cover for an existing book from an in-memory buffer. Shared
 // by the "set cover from URL" and "choose cover image" flows. Resizes,
@@ -1384,11 +1419,9 @@ async function setBookCoverFromBuffer(bookId, buf) {
 
 ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
   if (!url || typeof url !== 'string') return { error: 'No URL provided.' };
-  let parsed;
-  try { parsed = new URL(url); } catch { return { error: 'Invalid URL.' }; }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return { error: 'URL must be http(s).' };
-  }
+  // Validates scheme + DNS-resolves to block SSRF against LAN/loopback/
+  // metadata services (e.g. http://router.local, http://169.254.169.254).
+  try { await assertExternalUrl(url); } catch (e) { return { error: e.message }; }
   try {
     const res = await fetch(url, { headers: { 'User-Agent': 'Airshelf/0.1' } });
     if (!res.ok) return { error: `Server returned ${res.status}.` };
