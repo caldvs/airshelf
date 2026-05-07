@@ -58,21 +58,21 @@ function rewriteExthSection(record0, mobiHeaderOffset) {
 
   let cursor = exthStart + 12;
   const kept = [];
-  let sawCdeType = false;
   for (let i = 0; i < exthRecordCount; i++) {
     const type = record0.readUInt32BE(cursor);
     const len = record0.readUInt32BE(cursor + 4);
-    if (type === 504) {
-      // Drop any stale AmazonId so Kindle doesn't try a cloud lookup.
-    } else if (type === 501) {
-      sawCdeType = true;
-      kept.push(buildExthRecord(501, 'PDOC'));
-    } else {
+    // 504 (AmazonId) is dropped so Kindle doesn't try a cloud lookup for
+    // a non-existent ASIN. All 501 (cdetype) records are dropped here and
+    // replaced below with exactly one canonical 501="PDOC" — that makes
+    // this rewrite idempotent (a file with two 501 records, e.g. from a
+    // previous tool that didn't dedup, won't end up with two 501="PDOC"
+    // records after one pass).
+    if (type !== 504 && type !== 501) {
       kept.push(Buffer.from(record0.slice(cursor, cursor + len)));
     }
     cursor += len;
   }
-  if (!sawCdeType) kept.push(buildExthRecord(501, 'PDOC'));
+  kept.push(buildExthRecord(501, 'PDOC'));
 
   const newBody = Buffer.concat(kept);
   const pad = (4 - (newBody.length % 4)) % 4;
@@ -138,4 +138,4 @@ function normalizeKindleMetadata(filePath) {
   return true;
 }
 
-module.exports = { normalizeKindleMetadata };
+module.exports = { normalizeKindleMetadata, rewriteExthSection, buildExthRecord };
