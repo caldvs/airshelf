@@ -1,7 +1,10 @@
 // Run `mapper(item, i)` over `items` with at most `limit` running at once.
 // Workers cooperatively pull from a shared cursor, so a slow item doesn't
-// stall the others. Errors propagate (Promise.all behaviour); a single
-// failure aborts the batch.
+// stall the others. Errors propagate (Promise.all rejects on first
+// failure) — but already-running workers are NOT cancelled and will
+// finish their current item before the rejected promise surfaces. If
+// you need cancellation, wrap with an AbortController and have the
+// mapper observe it.
 async function mapWithConcurrency(items, limit, mapper) {
   const results = new Array(items.length);
   let cursor = 0;
