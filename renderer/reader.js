@@ -77,7 +77,7 @@
     viewportEl.innerHTML = '';
 
     const epubUrl = await buildEpubUrl(bookMeta.id);
-    console.log('[reader] opening', epubUrl);
+    console.log('[reader] opening book', bookMeta.id);
     try {
       // Fetch the bytes ourselves so we get a real error instead of an
       // opaque epubjs failure if the URL/CORS misbehaves.
@@ -88,7 +88,12 @@
       book = ePub(ab);
     } catch (e) {
       console.error('[reader] fetch failed', e);
-      viewportEl.innerHTML = `<div style="padding:32px;color:#b00;font:14px system-ui">Reader failed to load: ${e.message}</div>`;
+      const errorEl = document.createElement('div');
+      errorEl.style.padding = '32px';
+      errorEl.style.color = '#b00';
+      errorEl.style.font = '14px system-ui';
+      errorEl.textContent = `Reader failed to load: ${e && e.message ? e.message : String(e)}`;
+      viewportEl.replaceChildren(errorEl);
       return;
     }
     rendition = book.renderTo(viewportEl, {
