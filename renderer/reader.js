@@ -42,9 +42,11 @@
     }
   }
 
-  function getServerOrigin() {
-    // Server is bound to 0.0.0.0:6790; loopback works for the reader.
-    return 'http://127.0.0.1:6790';
+  async function buildEpubUrl(id) {
+    // Server requires /<token>/... on every request. Use loopback for the
+    // reader regardless of LAN IP — the token is the actual auth boundary.
+    const info = await window.airshelf.serverInfo();
+    return `http://127.0.0.1:${info.port}/${info.token}/epub/${id}`;
   }
 
   async function openReader(bookMeta) {
@@ -66,7 +68,7 @@
     }
     viewportEl.innerHTML = '';
 
-    const epubUrl = `${getServerOrigin()}/epub/${bookMeta.id}`;
+    const epubUrl = await buildEpubUrl(bookMeta.id);
     console.log('[reader] opening', epubUrl);
     try {
       // Fetch the bytes ourselves so we get a real error instead of an
