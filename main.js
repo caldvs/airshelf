@@ -1209,8 +1209,11 @@ function startServer() {
         return;
       }
       // Streams the original .epub for the in-app reader (epubjs needs the
-      // raw zip with proper MIME). Loopback-only — bound to 0.0.0.0 already
-      // for the Kindle, but Range support keeps epubjs happy on big books.
+      // raw zip with proper MIME). The reader fetches via loopback, but the
+      // route is reachable from LAN with the token like every other route —
+      // CORS is set to 'null' (matches file:// origin) and Range support
+      // keeps epubjs happy on big books. To restrict to loopback, check
+      // req.socket.remoteAddress for 127.0.0.1 / ::1 / ::ffff:127.0.0.1.
       const epubMatch = subPath.match(/^\/epub\/([a-f0-9]+)$/);
       if (epubMatch) {
         const id = epubMatch[1];
