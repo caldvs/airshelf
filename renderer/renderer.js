@@ -40,6 +40,15 @@ function setBusy(msg) {
 // ---- Bookshelf ----
 let selectedBookId = null;
 
+// Reader writes `airshelf-reader-pct:<id>` whenever locations are ready and
+// the user moves; absent value means the user has never opened the book.
+function readReaderProgress(id) {
+  const raw = localStorage.getItem(`airshelf-reader-pct:${id}`);
+  if (raw == null) return null;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
+}
+
 function renderBooks(books) {
   shelfEl.innerHTML = '';
 
@@ -89,6 +98,24 @@ function renderBooks(books) {
         cover.appendChild(img);
       } else {
         cover.textContent = b.title;
+      }
+
+      const pct = readReaderProgress(b.id);
+      if (pct !== null) {
+        const done = pct >= 100;
+        if (done) cover.classList.add('finished');
+        const bar = document.createElement('div');
+        bar.className = 'cover-progress';
+        bar.setAttribute('aria-hidden', 'true');
+        const fill = document.createElement('div');
+        fill.className = 'cover-progress-fill' + (done ? ' done' : '');
+        fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+        bar.appendChild(fill);
+        cover.appendChild(bar);
+        const label = document.createElement('div');
+        label.className = 'cover-progress-label' + (done ? ' done' : '');
+        label.textContent = done ? '✓ Done' : `${pct}%`;
+        cover.appendChild(label);
       }
 
       const title = document.createElement('div');
