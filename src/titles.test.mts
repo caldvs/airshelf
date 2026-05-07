@@ -4,7 +4,7 @@ import {
   cleanTitle,
   guessAuthorFromFilename,
   shouldUseOpenLibraryTitle,
-} from './titles.ts';
+} from './titles.js';
 
 describe('titlesMatch', () => {
   it('matches identical titles', () => {
@@ -31,9 +31,11 @@ describe('titlesMatch', () => {
     expect(titlesMatch('It', 'It Stephen King Novel')).toBe(false);
   });
 
-  it('rejects partial prefixes mid-word', () => {
-    // "Dun" is a prefix of "Dune" but not at a word boundary
-    expect(titlesMatch('Dun', 'Dune')).toBe(false);
+  it('rejects prefixes that are not at a word boundary', () => {
+    // "Dune" is a prefix of "Dunes" but no whitespace separates them, so
+    // titlesMatch's `startsWith(na + ' ')` check rejects. Both inputs are
+    // ≥4 chars to isolate this from the short-prefix rejection.
+    expect(titlesMatch('Dune', 'Dunes')).toBe(false);
   });
 
   it('rejects empty / whitespace-only inputs', () => {
@@ -134,10 +136,13 @@ describe('shouldUseOpenLibraryTitle', () => {
     expect(shouldUseOpenLibraryTitle('Dune', 'The Hobbit')).toBe(false);
   });
 
-  it('accepts when OL title is a clean variant within +4 chars', () => {
-    // "The Hobbit" (11) vs "The Hobbit." (12) — OL variant within budget
+  it('accepts a clean OL variant within the +4 char budget', () => {
+    // "The Hobbit" (10) vs "The Hobbit." (11) — OL adds a trailing dot.
     expect(shouldUseOpenLibraryTitle('The Hobbit', 'The Hobbit.')).toBe(true);
-    // "Dune" (4) vs "Dune Messiah" (12) — too long, reject
+  });
+
+  it('rejects an OL title that exceeds the +4 char budget', () => {
+    // "Dune" (4) vs "Dune Messiah" (12) — different book, too long.
     expect(shouldUseOpenLibraryTitle('Dune', 'Dune Messiah')).toBe(false);
   });
 

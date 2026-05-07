@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { humanSize, escapeHtml } from './utils.ts';
+import { humanSize, escapeHtml } from './utils.js';
 
 describe('humanSize', () => {
   it('renders bytes under 1KiB as plain bytes', () => {
@@ -42,12 +42,12 @@ describe('escapeHtml', () => {
     expect(escapeHtml('Café — 你好 — Привет')).toBe('Café — 你好 — Привет');
   });
 
-  it('is idempotent on output (entities themselves contain no specials)', () => {
+  it('double-escapes ampersands in already-escaped entities (NOT idempotent)', () => {
+    // Documenting current behaviour: re-running escapeHtml on its own output
+    // re-escapes the & in entities (so &lt; → &amp;lt;). If output ever
+    // becomes byte-idempotent that's a behaviour change, not a bugfix.
     const once = escapeHtml('<a href="x">');
     const twice = escapeHtml(once);
-    // & in &lt; and &amp; gets re-escaped to &amp; — that's the expected
-    // contract; documenting here so a future change doesn't accidentally
-    // claim full idempotency.
     expect(twice).toContain('&amp;lt;');
   });
 });
