@@ -368,7 +368,101 @@ document.querySelectorAll('.theme-swatch').forEach(sw => {
   });
 });
 
+// ---- Calibre detection ----
+//
+// The banner above the shelf is dismissable via localStorage so users who
+// genuinely don't need Calibre (Kindle-native formats only) aren't nagged on
+// every launch. Any transition to "found" — auto or user — clears the dismiss
+// flag, so future breakage re-surfaces the banner. The Settings panel always
+// reflects current status regardless.
+
+const CALIBRE_DOWNLOAD_URL = 'https://calibre-ebook.com/download_osx';
+const CALIBRE_BANNER_DISMISS_KEY = 'airshelf-calibre-banner-dismissed';
+
+const calibreBanner = document.getElementById('calibre-banner');
+const calibreStatusEl = document.getElementById('calibre-status');
+const calibreStatusPathEl = document.getElementById('calibre-status-path');
+const calibreClearBtn = document.getElementById('calibre-clear');
+
+async function refreshCalibreStatus() {
+  let s;
+  try {
+    s = await window.airshelf.calibreStatus();
+  } catch {
+    s = { found: false, binDir: null, source: null };
+  }
+  // Forget-button visibility is tied to whether a user path is *saved* in
+  // settings, not to whether it's currently active. A saved-but-stale entry
+  // (Calibre moved/uninstalled, auto-detect took over) still needs to be
+  // clearable from the UI, otherwise the dead path stays in settings.json
+  // forever.
+  calibreClearBtn.classList.toggle('hidden', !s.userPathSaved);
+
+  if (s.found) {
+    calibreStatusEl.textContent = s.source === 'user' ? 'Found (custom path)' : 'Found';
+    calibreStatusPathEl.textContent = s.binDir || '';
+    calibreBanner.classList.add('hidden');
+    // Clear the dismiss flag on every found-state read, not just after a
+    // successful Locate, so an auto-detected Calibre arrival also resets it.
+    localStorage.removeItem(CALIBRE_BANNER_DISMISS_KEY);
+  } else {
+    calibreStatusEl.textContent = 'Not found';
+    calibreStatusPathEl.textContent = '';
+    if (!localStorage.getItem(CALIBRE_BANNER_DISMISS_KEY)) {
+      calibreBanner.classList.remove('hidden');
+    }
+  }
+  return s;
+}
+
+async function calibreLocateFlow() {
+  let r;
+  try {
+    r = await window.airshelf.calibreLocate();
+  } catch (e) {
+    showToast(`Locate failed: ${e.message}`, 'error');
+    return;
+  }
+  if (!r || r.canceled) return;
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Calibre saved', 'success');
+  refreshCalibreStatus();
+}
+
+async function openCalibreDownload() {
+  try {
+    // open:external resolves with `{ ok, error }` rather than rejecting on
+    // shell-open failure, so we need to inspect the payload too.
+    const r = await window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
+    if (r && r.ok === false) {
+      showToast(`Could not open browser: ${r.error || 'unknown error'}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Could not open browser: ${e.message}`, 'error');
+  }
+}
+
+document.getElementById('calibre-banner-locate').addEventListener('click', calibreLocateFlow);
+document.getElementById('calibre-banner-get').addEventListener('click', openCalibreDownload);
+document.getElementById('calibre-banner-dismiss').addEventListener('click', () => {
+  localStorage.setItem(CALIBRE_BANNER_DISMISS_KEY, '1');
+  calibreBanner.classList.add('hidden');
+});
+document.getElementById('calibre-redetect').addEventListener('click', refreshCalibreStatus);
+document.getElementById('calibre-locate').addEventListener('click', calibreLocateFlow);
+document.getElementById('calibre-clear').addEventListener('click', async () => {
+  try {
+    await window.airshelf.calibreClear();
+  } catch (e) {
+    showToast(`Forget failed: ${e.message}`, 'error');
+    return;
+  }
+  refreshCalibreStatus();
+});
+document.getElementById('calibre-get').addEventListener('click', openCalibreDownload);
+
 // ---- Init ----
 refresh();
 loadServerInfo();
 setInterval(loadServerInfo, 5000);
+refreshCalibreStatus();

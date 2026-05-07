@@ -27,6 +27,17 @@
     <main class="content">
       <!-- Bookshelf view -->
       <section class="view" id="view-bookshelf">
+        <div class="missing-dep hidden" id="calibre-banner" role="status">
+          <div class="missing-dep-text">
+            <strong>Calibre not detected.</strong>
+            <span>Until Calibre is installed, only existing AZW3 files can be imported. Every other format requires Calibre for conversion.</span>
+          </div>
+          <div class="missing-dep-actions">
+            <button class="missing-dep-btn" id="calibre-banner-locate">Locate…</button>
+            <button class="missing-dep-btn" id="calibre-banner-get">Get Calibre</button>
+            <button class="missing-dep-close" id="calibre-banner-dismiss" aria-label="Dismiss">×</button>
+          </div>
+        </div>
         <div class="shelf" id="shelf"></div>
         <div class="drop-hint" id="drop-hint">Drop ebooks here</div>
       </section>
@@ -111,6 +122,21 @@
               <span class="swatch-dot"></span>
               <span class="swatch-name">Moss</span>
             </button>
+          </div>
+
+          <div class="setting-section-label">Calibre</div>
+          <div class="setting-row setting-row-stacked">
+            <div class="setting-row-main">
+              <div class="setting-label">Status</div>
+              <div class="setting-value" id="calibre-status">Checking…</div>
+            </div>
+            <div class="setting-row-sub" id="calibre-status-path"></div>
+            <div class="setting-row-actions">
+              <button class="setting-btn" id="calibre-redetect">Re-detect</button>
+              <button class="setting-btn" id="calibre-locate">Locate ebook-convert…</button>
+              <button class="setting-btn setting-btn-ghost hidden" id="calibre-clear">Forget saved path</button>
+              <button class="setting-btn setting-btn-ghost" id="calibre-get">Download Calibre</button>
+            </div>
           </div>
 
           <div class="setting-section-label">General</div>
