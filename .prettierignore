@@ -1,0 +1,7 @@
+node_modules
+dist
+build
+.claude/worktrees
+package-lock.json
+*.min.js
+*.min.css
