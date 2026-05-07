@@ -247,14 +247,22 @@ let serverToken = null;
 
 // ---------- Book storage ----------
 
+// In-memory cache of the books.json contents. Populated on first loadMeta()
+// call and kept in sync with disk via saveMeta(). Subsequent loadMeta()s are
+// O(1) — no disk read, no JSON.parse. This eliminates the per-HTTP-request
+// + per-IPC-call disk hit that was the dominant runtime cost (HTTP /cover,
+// /download, /epub all funnel through listBooks() → loadMeta()).
+let metaCache = null;
+
 function loadMeta() {
+  if (metaCache) return metaCache;
   let raw;
   try {
     raw = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
   } catch {
-    return { books: [] };
+    raw = { books: [] };
   }
-  if (!raw || !Array.isArray(raw.books)) return { books: [] };
+  if (!raw || !Array.isArray(raw.books)) raw = { books: [] };
   // Defense in depth: every metadata field that gets joined with booksDir
   // and served over HTTP must be a single path component. A tampered
   // books.json with `book.file = "../../etc/passwd"` would otherwise leak
@@ -274,11 +282,20 @@ function loadMeta() {
     }
     return true;
   });
-  return { ...raw, books };
+  metaCache = { ...raw, books };
+  return metaCache;
 }
 
 function saveMeta(meta) {
-  fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2));
+  // Mutate the cache in place if a different object was passed (e.g. test
+  // code calling saveMeta({ books: [...] }) directly). Normal callers pass
+  // the same object loadMeta returned, so this is a no-op for them.
+  if (meta !== metaCache) metaCache = meta;
+  // Atomic write: tmp + rename. A crash mid-write leaves either the old
+  // file intact or the new file complete — never a half-written books.json.
+  const tmp = `${metaFile}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(meta, null, 2));
+  fs.renameSync(tmp, metaFile);
 }
 
 function extractEpubCover(epubPath, outPath) {
