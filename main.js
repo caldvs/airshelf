@@ -9,12 +9,15 @@ const AdmZip = require('adm-zip');
 const { hashFileSha1 } = require('./hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
 
-// FIFO around every load-then-write of books.json. Concurrent addBooks
-// were racing each other: both load the same snapshot, both push their
-// own book, the second save overwrites the first. Serialising the
-// load+save bookends keeps both books in the file. Long file work
-// (hash, copy, Calibre conversion) runs OUTSIDE the queue so the
-// addManyBooks concurrency below isn't bottlenecked on this lock.
+// FIFO around the two atomic load-then-write blocks in addBook (the
+// dedup check at the start, and the push-to-meta at the end). Concurrent
+// addBooks were racing each other: both load the same snapshot, both push
+// their own book, the second save overwrites the first. Serialising those
+// two bookends keeps both books in the file. Long file work (hash, copy,
+// Calibre conversion) runs OUTSIDE the queue so addManyBooks concurrency
+// isn't bottlenecked on this lock. The queue is NOT applied to every
+// loadMeta/saveMeta call site in main.js — read-only paths and migration
+// loops bypass it.
 const metaQueue = createSerialQueue();
 
 // Set the app name before anything else — this controls the bold label
@@ -665,9 +668,8 @@ async function addBook(srcPath) {
   // Full fix lives in #3 once the in-memory cache lands.
   return await metaQueue(async () => {
     const meta = loadMeta();
-    if (meta.books.find(b => b.hash === srcHash)) {
-      return { duplicate: meta.books.find(b => b.hash === srcHash) };
-    }
+    const winner = meta.books.find(b => b.hash === srcHash);
+    if (winner) return { duplicate: winner };
     meta.books.push(book);
     saveMeta(meta);
     return { book };
