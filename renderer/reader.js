@@ -42,9 +42,11 @@
     }
   }
 
-  function getServerOrigin() {
-    // Server is bound to 0.0.0.0:6790; loopback works for the reader.
-    return 'http://127.0.0.1:6790';
+  async function buildEpubUrl(id) {
+    // Server requires /<token>/... on every request. Use loopback for the
+    // reader regardless of LAN IP — the token is the actual auth boundary.
+    const info = await window.airshelf.serverInfo();
+    return `http://127.0.0.1:${info.port}/${info.token}/epub/${id}`;
   }
 
   async function openReader(bookMeta) {
@@ -54,6 +56,14 @@
     authorEl.textContent = [bookMeta.author, bookMeta.year].filter(Boolean).join(' · ');
     readerEl.classList.add('active');
     tocEl.classList.remove('open');
+
+    // Reset progress/locations state before swapping books — otherwise the
+    // previous book's locations stay marked ready while the new book's
+    // index is still building, producing junk percentages.
+    locationsReady = false;
+    currentLocation = null;
+    if (progressEl) progressEl.value = '0';
+    if (posEl) posEl.textContent = '—';
 
     // Tear down any previous rendition before swapping books.
     if (rendition) {
@@ -66,8 +76,8 @@
     }
     viewportEl.innerHTML = '';
 
-    const epubUrl = `${getServerOrigin()}/epub/${bookMeta.id}`;
-    console.log('[reader] opening', epubUrl);
+    const epubUrl = await buildEpubUrl(bookMeta.id);
+    console.log('[reader] opening book', bookMeta.id);
     try {
       // Fetch the bytes ourselves so we get a real error instead of an
       // opaque epubjs failure if the URL/CORS misbehaves.
@@ -78,7 +88,12 @@
       book = ePub(ab);
     } catch (e) {
       console.error('[reader] fetch failed', e);
-      viewportEl.innerHTML = `<div style="padding:32px;color:#b00;font:14px system-ui">Reader failed to load: ${e.message}</div>`;
+      const errorEl = document.createElement('div');
+      errorEl.style.padding = '32px';
+      errorEl.style.color = '#b00';
+      errorEl.style.font = '14px system-ui';
+      errorEl.textContent = `Reader failed to load: ${e?.message ?? String(e)}`;
+      viewportEl.replaceChildren(errorEl);
       return;
     }
     rendition = book.renderTo(viewportEl, {
