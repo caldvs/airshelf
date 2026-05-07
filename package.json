@@ -6,7 +6,9 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --mac"
+    "build": "electron-builder --mac",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "build": {
     "appId": "com.airshelf.app",
@@ -38,6 +40,8 @@
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "adm-zip": "^0.5.16",
-    "better-sqlite3": "^12.8.0"
+    "better-sqlite3": "^12.8.0",
+    "epubjs": "^0.3.93",
+    "jszip": "^3.10.1"
   }
 }

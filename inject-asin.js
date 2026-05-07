@@ -1,175 +1,133 @@
-// Inject Amazon ASIN / cdetype metadata into a MOBI/AZW3 file by directly
-// patching the EXTH header. This is what tells Kindle's library indexer to
-// treat the file as a native Amazon ebook (and reliably generate a library
-// cover thumbnail) rather than as a "Personal Document".
+// Normalise the Kindle-facing metadata inside a MOBI/AZW3 file so the
+// experimental browser's sideload pipeline treats the book as a Personal
+// Document (PDOC). This is what makes Kindle's library indexer generate a
+// cover thumbnail from the embedded EXTH 201 cover image.
+//
+// Earlier versions of this module injected a fake Amazon ASIN plus
+// cdetype=EBOK, on the theory that Kindle would treat the file as a native
+// Amazon ebook. Empirically the opposite happens on recent firmware: the
+// indexer tries to look up the (non-existent) ASIN in the Amazon catalogue,
+// fails, and shows no cover at all. Comparing against Bookify's output
+// (which reliably renders covers) showed cdetype=PDOC and no 504 record.
 //
 // Format references:
 //   PDB header:        https://wiki.mobileread.com/wiki/PDB
 //   MOBI/EXTH header:  https://wiki.mobileread.com/wiki/MOBI
-//
-// The records we inject:
-//   113 (ASIN)         — fake B0-prefixed ASIN string
-//   501 (cdetype)      — "EBOK" → "Amazon ebook"
-//   504 (AmazonId)     — duplicate of ASIN
 
 const fs = require('fs');
-const crypto = require('crypto');
-
-// Generate a deterministic fake ASIN for a book id. Real ASINs are 10
-// characters starting with B0; we keep the same shape so Kindle's indexer
-// is happy. Deterministic so re-injection produces the same value.
-function fakeAsinForId(id) {
-  const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const hash = crypto.createHash('sha1').update(String(id)).digest();
-  let s = 'B0';
-  for (let i = 0; i < 8; i++) {
-    s += ALPHABET[hash[i] % ALPHABET.length];
-  }
-  return s;
-}
 
 function buildExthRecord(type, data) {
   const dataBuf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'latin1');
   const rec = Buffer.alloc(8 + dataBuf.length);
   rec.writeUInt32BE(type, 0);
-  rec.writeUInt32BE(8 + dataBuf.length, 4); // total length including 8-byte header
+  rec.writeUInt32BE(8 + dataBuf.length, 4);
   dataBuf.copy(rec, 8);
   return rec;
 }
 
-// Locate every "MOBI" header inside record 0. AZW3/KF8 files often contain
-// two MOBI headers (the legacy MOBI6 wrapper and the KF8 header). We patch
-// the EXTH that follows each one so Kindle reads consistent metadata
-// regardless of which half it indexes from.
-function findMobiHeaders(record0) {
+function findMobiHeaders(buf) {
   const headers = [];
-  let i = 0;
-  while (i + 4 <= record0.length) {
-    if (record0[i] === 0x4d && record0[i + 1] === 0x4f &&
-        record0[i + 2] === 0x42 && record0[i + 3] === 0x49) { // "MOBI"
+  for (let i = 0; i + 4 <= buf.length; i++) {
+    if (buf[i] === 0x4d && buf[i + 1] === 0x4f &&
+        buf[i + 2] === 0x42 && buf[i + 3] === 0x49) {
       headers.push(i);
-      i += 4;
-    } else {
-      i += 1;
     }
   }
   return headers;
 }
 
-// Patch a single EXTH section in a buffer (the buffer is a slice — caller
-// reassembles). Returns { patched: Buffer, delta: number }.
-function patchExthSection(record0, mobiHeaderOffset, asin) {
+// Rebuild a single EXTH section: replace 501 with PDOC, drop 504, keep
+// everything else. Returns { patched, delta }.
+function rewriteExthSection(record0, mobiHeaderOffset) {
   const mobiHeaderLength = record0.readUInt32BE(mobiHeaderOffset + 4);
-  // Calibre's AZW3 output writes the EXTH section but doesn't set the
-  // bit-6 flag in the MOBI header. So instead of trusting the flag we just
-  // check for the EXTH magic directly after the MOBI header.
   const exthStart = mobiHeaderOffset + mobiHeaderLength;
   if (exthStart + 12 > record0.length ||
       record0.slice(exthStart, exthStart + 4).toString('ascii') !== 'EXTH') {
     return { patched: record0, delta: 0 };
   }
-  // While we're here, set the EXTH flag bit so other readers know it exists
+
+  // Make sure the EXTH-present flag is set in the MOBI header.
   const flagOffset = mobiHeaderOffset + 0x80;
   if (flagOffset + 4 <= record0.length) {
     const flag = record0.readUInt32BE(flagOffset);
-    if ((flag & 0x40) === 0) {
-      record0.writeUInt32BE(flag | 0x40, flagOffset);
-    }
+    if ((flag & 0x40) === 0) record0.writeUInt32BE(flag | 0x40, flagOffset);
   }
 
   const exthLength = record0.readUInt32BE(exthStart + 4);
   const exthRecordCount = record0.readUInt32BE(exthStart + 8);
 
-  // Walk records, note which already exist, and find where to insert.
-  const existing = new Set();
   let cursor = exthStart + 12;
+  const kept = [];
+  let sawCdeType = false;
   for (let i = 0; i < exthRecordCount; i++) {
     const type = record0.readUInt32BE(cursor);
     const len = record0.readUInt32BE(cursor + 4);
-    existing.add(type);
+    if (type === 504) {
+      // Drop any stale AmazonId so Kindle doesn't try a cloud lookup.
+    } else if (type === 501) {
+      sawCdeType = true;
+      kept.push(buildExthRecord(501, 'PDOC'));
+    } else {
+      kept.push(Buffer.from(record0.slice(cursor, cursor + len)));
+    }
     cursor += len;
   }
-  const insertOffset = cursor; // end of last existing record (before EXTH padding)
+  if (!sawCdeType) kept.push(buildExthRecord(501, 'PDOC'));
 
-  const newRecords = [];
-  if (!existing.has(113)) newRecords.push(buildExthRecord(113, asin));
-  if (!existing.has(501)) newRecords.push(buildExthRecord(501, 'EBOK'));
-  if (!existing.has(504)) newRecords.push(buildExthRecord(504, asin));
+  const newBody = Buffer.concat(kept);
+  const pad = (4 - (newBody.length % 4)) % 4;
+  const paddedBody = Buffer.concat([newBody, Buffer.alloc(pad, 0)]);
+  const newExthLength = 12 + paddedBody.length;
+  const delta = newExthLength - exthLength;
 
-  if (newRecords.length === 0) {
-    return { patched: record0, delta: 0 };
-  }
-
-  const insertBuf = Buffer.concat(newRecords);
-  // EXTH section must remain 4-byte aligned. Pad the insertion so the
-  // following bytes (existing padding + full title) keep their alignment.
-  const insertLen = insertBuf.length;
-  const padNeeded = (4 - (insertLen % 4)) % 4;
-  const paddedInsert = Buffer.concat([insertBuf, Buffer.alloc(padNeeded, 0)]);
-  const delta = paddedInsert.length;
-
-  // Splice the new records into record 0
   const out = Buffer.concat([
-    record0.slice(0, insertOffset),
-    paddedInsert,
-    record0.slice(insertOffset),
+    record0.slice(0, exthStart + 12),
+    paddedBody,
+    record0.slice(exthStart + exthLength),
   ]);
+  out.writeUInt32BE(newExthLength, exthStart + 4);
+  out.writeUInt32BE(kept.length, exthStart + 8);
 
-  // Update EXTH header length and record count in place
-  out.writeUInt32BE(exthLength + delta, exthStart + 4);
-  out.writeUInt32BE(exthRecordCount + newRecords.length, exthStart + 8);
-
-  // The MOBI header has a "full name offset" field (offset 0x44) that
-  // points to the book title bytes inside record 0. If our insertion
-  // landed before the title, push that offset forward by the delta.
+  // Shift the MOBI full-name offset if the title lived after the EXTH.
   const fullNameOffset = out.readUInt32BE(mobiHeaderOffset + 0x44);
-  if (fullNameOffset >= insertOffset) {
+  if (fullNameOffset >= exthStart + exthLength) {
     out.writeUInt32BE(fullNameOffset + delta, mobiHeaderOffset + 0x44);
   }
 
   return { patched: out, delta };
 }
 
-function injectAmazonAsin(filePath, asin) {
+function normalizeKindleMetadata(filePath) {
   const buf = fs.readFileSync(filePath);
 
-  // PDB header: 78 bytes fixed, then numberOfRecords at offset 76 (BE u16)
   const numRecords = buf.readUInt16BE(76);
   if (numRecords < 1) return false;
 
-  // Each record info entry is 8 bytes starting at byte 78:
-  //   offset (BE u32) | attrs (u8) | uid (3 bytes BE)
   const record0Start = buf.readUInt32BE(78);
   const record1Start = numRecords > 1 ? buf.readUInt32BE(78 + 8) : buf.length;
   const originalRecord0 = buf.slice(record0Start, record1Start);
 
-  // Inside record 0: PalmDoc header (16 bytes) then MOBI header(s)
-  const mobiOffsets = findMobiHeaders(originalRecord0);
-  if (mobiOffsets.length === 0) return false;
+  const allMobis = findMobiHeaders(buf);
+  const mobisInRecord0 = allMobis
+    .filter(o => o >= record0Start && o < record1Start)
+    .map(o => o - record0Start);
+  if (mobisInRecord0.length === 0) return false;
 
-  // Patch each MOBI header's EXTH in turn
-  let working = originalRecord0;
+  let working = Buffer.from(originalRecord0);
   let totalDelta = 0;
-  for (const baseOffset of mobiOffsets) {
-    // baseOffset was computed against the original buffer; account for any
-    // earlier insertions by shifting forward by totalDelta.
+  for (const baseOffset of mobisInRecord0) {
     const offset = baseOffset + totalDelta;
-    const { patched, delta } = patchExthSection(working, offset, asin);
+    const { patched, delta } = rewriteExthSection(working, offset);
     working = patched;
     totalDelta += delta;
   }
 
-  if (totalDelta === 0) return true; // already had the records
-
-  // Reassemble the file: original header + record info table + (everything
-  // before record 0) + new record 0 + (everything after old record 0)
   const out = Buffer.concat([
     buf.slice(0, record0Start),
     working,
     buf.slice(record1Start),
   ]);
 
-  // Shift PDB record offsets for every record after record 0
   for (let i = 1; i < numRecords; i++) {
     const entryAt = 78 + i * 8;
     const off = out.readUInt32BE(entryAt);
@@ -180,4 +138,4 @@ function injectAmazonAsin(filePath, asin) {
   return true;
 }
 
-module.exports = { injectAmazonAsin, fakeAsinForId };
+module.exports = { normalizeKindleMetadata };

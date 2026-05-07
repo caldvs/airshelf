@@ -151,6 +151,44 @@
     </div>
   </div>
 
+  <!-- Reader overlay -->
+  <div class="reader" id="reader">
+    <header class="reader-bar reader-bar-top">
+      <button class="reader-btn" id="reader-close" title="Close reader (Esc)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="reader-title-wrap">
+        <div class="reader-title" id="reader-title"></div>
+        <div class="reader-author" id="reader-author"></div>
+      </div>
+      <div class="reader-controls">
+        <button class="reader-btn" id="reader-font-down" title="Smaller text">A−</button>
+        <button class="reader-btn" id="reader-font-up" title="Larger text">A+</button>
+        <button class="reader-btn" id="reader-toc-btn" title="Contents">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="reader-stage">
+      <button class="reader-zone reader-zone-left" id="reader-prev" aria-label="Previous page"></button>
+      <div class="reader-viewport" id="reader-viewport"></div>
+      <button class="reader-zone reader-zone-right" id="reader-next" aria-label="Next page"></button>
+    </div>
+
+    <footer class="reader-bar reader-bar-bottom">
+      <div class="reader-progress-wrap">
+        <input type="range" id="reader-progress" class="reader-progress" min="0" max="1000" value="0" step="1">
+        <div class="reader-pos" id="reader-pos">—</div>
+      </div>
+    </footer>
+
+    <aside class="reader-toc" id="reader-toc">
+      <div class="reader-toc-head">Contents</div>
+      <ol class="reader-toc-list" id="reader-toc-list"></ol>
+    </aside>
+  </div>
+
   <div class="toast" id="toast"></div>
   <div class="busy" id="busy">
     <div class="busy-box">
@@ -159,6 +197,9 @@
     </div>
   </div>
 
+  <script src="../node_modules/jszip/dist/jszip.min.js"></script>
+  <script src="../node_modules/epubjs/dist/epub.min.js"></script>
+  <script src="reader.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

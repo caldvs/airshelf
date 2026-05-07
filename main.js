@@ -23,7 +23,7 @@ app.setAboutPanelOptions({
 const PORT = parseInt(process.env.PORT, 10) || 6790;
 
 // Files the Kindle experimental browser can download directly
-const { injectAmazonAsin, fakeAsinForId } = require('./inject-asin.js');
+const { normalizeKindleMetadata } = require('./inject-asin.js');
 
 const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us
@@ -147,6 +147,64 @@ function convertToAzw3(srcPath, outPath, coverPath = null) {
 
 // Backwards-compat alias used by older code paths
 const convertToMobi = convertToAzw3;
+
+// Build an EPUB for the in-app reader. epubjs needs raw EPUB; books that
+// arrived as MOBI/AZW3/PDF get converted on first open and cached as
+// `<id>.reader.epub`.
+function convertToEpub(srcPath, outPath) {
+  return new Promise((resolve, reject) => {
+    const bin = findEbookConvert();
+    if (!bin) return reject(new Error('Calibre ebook-convert not found. Install Calibre.'));
+    execFile(bin, [srcPath, outPath, '--no-default-epub-cover'], {
+      timeout: 300000,
+      maxBuffer: 10 * 1024 * 1024,
+    }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr || err.message));
+      resolve();
+    });
+  });
+}
+
+// In-flight conversion promises so concurrent /epub/<id> requests share work.
+const epubBuildPromises = new Map();
+
+async function getOrBuildReaderEpub(book) {
+  // Prefer the original if it's already EPUB.
+  const origRel = book.originalFile || `${book.id}.epub`;
+  const origPath = path.join(booksDir, origRel);
+  if (origPath.toLowerCase().endsWith('.epub') && fs.existsSync(origPath)) {
+    return origPath;
+  }
+  // Cached conversion.
+  const cached = path.join(booksDir, `${book.id}.reader.epub`);
+  if (fs.existsSync(cached)) return cached;
+
+  // De-dupe concurrent builds.
+  if (epubBuildPromises.has(book.id)) return epubBuildPromises.get(book.id);
+
+  // Pick a source to convert from: prefer the original (best fidelity);
+  // fall back to the served kindle file.
+  let src = fs.existsSync(origPath) ? origPath : null;
+  if (!src && book.file) {
+    const f = path.join(booksDir, book.file);
+    if (fs.existsSync(f)) src = f;
+  }
+  if (!src) throw new Error('No source file to convert');
+
+  const tmp = path.join(booksDir, `${book.id}.reader.tmp.epub`);
+  const p = (async () => {
+    try {
+      await convertToEpub(src, tmp);
+      fs.renameSync(tmp, cached);
+      return cached;
+    } finally {
+      try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {}
+      epubBuildPromises.delete(book.id);
+    }
+  })();
+  epubBuildPromises.set(book.id, p);
+  return p;
+}
 
 let mainWindow = null;
 let server = null;
@@ -517,14 +575,13 @@ async function addBook(srcPath) {
     coverEmbedded = await setCoverMetadata(servedPath, coverFullPath);
   }
 
-  // Inject a fake Amazon ASIN + cdetype=EBOK so Kindle's library indexer
-  // treats this as a native Amazon ebook (and reliably generates the
-  // library cover thumbnail) instead of a "personal document".
-  let asinInjected = false;
+  // Normalise EXTH so Kindle treats the file as a Personal Document and
+  // generates a cover thumbnail from the embedded EXTH 201 image.
+  let exthNormalized = false;
   try {
-    asinInjected = injectAmazonAsin(servedPath, fakeAsinForId(id));
+    exthNormalized = normalizeKindleMetadata(servedPath);
   } catch (e) {
-    console.warn(`ASIN injection failed for "${title}":`, e.message);
+    console.warn(`EXTH normalize failed for "${title}":`, e.message);
   }
 
   const kindleSize = fs.statSync(path.join(booksDir, kindleFile)).size;
@@ -546,7 +603,7 @@ async function addBook(srcPath) {
     description,
     hash: srcHash,
     coverEmbedded,
-    asinInjected,
+    exthNormalized,
     addedAt: Date.now(),
   };
   meta.books.push(book);
@@ -718,25 +775,29 @@ async function migrateExistingBooks() {
   }
   if (mainWindow) mainWindow.webContents.send('books:changed');
 
-  // ASIN-injection backfill: stamp every book's served file with a fake
-  // Amazon ASIN + cdetype=EBOK so Kindle treats it as a native Amazon
-  // ebook. Runs before the AZW3 rebuild so already-AZW3 books get patched.
+  // EXTH normalisation backfill: rewrite every book's served file so its
+  // metadata matches Kindle's Personal Document pipeline (501=PDOC, no
+  // 504). Runs before the AZW3 rebuild so already-AZW3 books get patched.
+  // The `exthNormalized` flag supersedes the legacy `asinInjected` flag —
+  // any book that was processed under the old EBOK+ASIN scheme needs to be
+  // rewritten, so we deliberately ignore the old flag here.
   {
     const m = loadMeta();
     for (const book of m.books) {
-      if (book.asinInjected) continue;
+      if (book.exthNormalized) continue;
       if (!book.file) continue;
       const fp = path.join(booksDir, book.file);
       if (!fs.existsSync(fp)) continue;
       try {
-        console.log(`Injecting ASIN into "${book.title}"…`);
-        injectAmazonAsin(fp, fakeAsinForId(book.id));
-        book.asinInjected = true;
+        console.log(`Normalising EXTH for "${book.title}"…`);
+        normalizeKindleMetadata(fp);
+        book.exthNormalized = true;
+        delete book.asinInjected;
         try { book.size = fs.statSync(fp).size; } catch {}
         saveMeta(m);
         if (mainWindow) mainWindow.webContents.send('books:changed');
       } catch (e) {
-        console.warn(`ASIN backfill failed for "${book.title}":`, e.message);
+        console.warn(`EXTH backfill failed for "${book.title}":`, e.message);
       }
     }
   }
@@ -771,13 +832,14 @@ async function migrateExistingBooks() {
       book.ext = 'azw3';
       book.azw3Built = true;
       book.coverEmbedded = !!coverPath;
-      // Stamp the rebuilt file with the fake Amazon ASIN so Kindle's
-      // library indexer treats it as a native ebook.
+      // Normalise EXTH on the freshly-built AZW3 so the cover thumbnail
+      // flows through Kindle's PDOC pipeline.
       try {
-        injectAmazonAsin(path.join(booksDir, azwName), fakeAsinForId(book.id));
-        book.asinInjected = true;
+        normalizeKindleMetadata(path.join(booksDir, azwName));
+        book.exthNormalized = true;
+        delete book.asinInjected;
       } catch (e) {
-        console.warn(`ASIN injection failed for "${book.title}":`, e.message);
+        console.warn(`EXTH normalize failed for "${book.title}":`, e.message);
       }
       try { book.size = fs.statSync(path.join(booksDir, azwName)).size; } catch {}
       saveMeta(meta3);
@@ -1042,7 +1104,7 @@ function renderIndexHtml() {
 
 function startServer() {
   if (server) return;
-  server = http.createServer((req, res) => {
+  server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
       if (url.pathname === '/screenshot') {
@@ -1114,17 +1176,63 @@ function startServer() {
         const stat = fs.statSync(filePath);
         const baseName = (book.title || 'book').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 80);
         const downloadName = `${baseName}.${book.ext}`;
-        // Kindle's browser treats Content-Disposition: attachment as a
-        // plain "download" (stays in downloads, no library indexing, no
-        // cover thumbnail). Omitting it (or using inline) makes Kindle
-        // import the file as a proper "document" — which IS indexed and
-        // DOES get a library cover thumbnail. This is what Bookify does.
+        // Matches Bookify's response shape exactly: octet-stream +
+        // attachment disposition with the real .azw3 filename. Swapping
+        // Content-Type to application/vnd.amazon.ebook is what triggers
+        // Kindle's "experimental browser cannot download this kind of
+        // file" error, even though the filename extension is identical.
         res.writeHead(200, {
-          'Content-Type': 'application/vnd.amazon.ebook',
+          'Content-Type': 'application/octet-stream',
           'Content-Length': stat.size,
           'Content-Disposition': `attachment; filename="${downloadName}"`,
         });
         fs.createReadStream(filePath).pipe(res);
+        return;
+      }
+      // Streams the original .epub for the in-app reader (epubjs needs the
+      // raw zip with proper MIME). Loopback-only — bound to 0.0.0.0 already
+      // for the Kindle, but Range support keeps epubjs happy on big books.
+      const epubMatch = url.pathname.match(/^\/epub\/([a-f0-9]+)$/);
+      if (epubMatch) {
+        const id = epubMatch[1];
+        const book = listBooks().find(b => b.id === id);
+        if (!book) { res.writeHead(404); res.end('Not found'); return; }
+        let epubPath;
+        try {
+          epubPath = await getOrBuildReaderEpub(book);
+        } catch (e) {
+          res.writeHead(500, { 'Access-Control-Allow-Origin': '*' });
+          res.end(`Build failed: ${e.message}`);
+          return;
+        }
+        if (!epubPath || !fs.existsSync(epubPath)) {
+          res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
+          res.end('Missing'); return;
+        }
+        const stat = fs.statSync(epubPath);
+        const range = req.headers.range;
+        const headers = {
+          'Content-Type': 'application/epub+zip',
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'private, max-age=3600',
+          // The reader iframe loads from file:// — allow it to fetch the epub.
+          'Access-Control-Allow-Origin': '*',
+        };
+        if (range) {
+          const m = /bytes=(\d+)-(\d*)/.exec(range);
+          if (m) {
+            const start = parseInt(m[1], 10);
+            const end = m[2] ? parseInt(m[2], 10) : stat.size - 1;
+            headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
+            headers['Content-Length'] = end - start + 1;
+            res.writeHead(206, headers);
+            fs.createReadStream(epubPath, { start, end }).pipe(res);
+            return;
+          }
+        }
+        headers['Content-Length'] = stat.size;
+        res.writeHead(200, headers);
+        fs.createReadStream(epubPath).pipe(res);
         return;
       }
       res.writeHead(404); res.end('Not found');

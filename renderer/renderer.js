@@ -97,7 +97,7 @@ function renderBooks(books) {
 
       const size = document.createElement('div');
       size.className = 'book-size';
-      const convertedLabel = b.converted ? ` · ${b.sourceExt.toUpperCase()}→MOBI` : '';
+      const convertedLabel = b.converted ? ` · ${b.sourceExt.toUpperCase()}→AZW3` : '';
       size.textContent = `${b.sizeHuman}${convertedLabel}`;
       card.append(size);
 
@@ -108,7 +108,7 @@ function renderBooks(books) {
 
       card.addEventListener('dblclick', (e) => {
         e.preventDefault();
-        window.airshelf.showContextMenu(b.id);
+        if (window.airshelfReader) window.airshelfReader.open(b);
       });
 
       card.addEventListener('contextmenu', (e) => {
@@ -137,6 +137,7 @@ document.addEventListener('keydown', async (e) => {
   if ((e.key === 'Backspace' || e.key === 'Delete') && selectedBookId) {
     const target = document.activeElement;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+    if (document.getElementById('reader')?.classList.contains('active')) return;
     e.preventDefault();
     await window.airshelf.deleteBook(selectedBookId);
     selectedBookId = null;
