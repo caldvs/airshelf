@@ -123,7 +123,10 @@
     rendition.on('keyup', handleKeyForward);
     rendition.on('keydown', handleKeyForward);
     rendition.on('click', () => {
-      if (tocEl.classList.contains('open')) tocEl.classList.remove('open'); tocBtn.setAttribute('aria-expanded', 'false');
+      if (tocEl.classList.contains('open')) {
+        tocEl.classList.remove('open');
+      }
+      tocBtn.setAttribute('aria-expanded', 'false');
     });
 
     // Build locations index for the progress slider — backgrounded; the
