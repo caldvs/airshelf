@@ -431,7 +431,12 @@ async function calibreLocateFlow() {
 
 async function openCalibreDownload() {
   try {
-    await window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
+    // open:external resolves with `{ ok, error }` rather than rejecting on
+    // shell-open failure, so we need to inspect the payload too.
+    const r = await window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
+    if (r && r.ok === false) {
+      showToast(`Could not open browser: ${r.error || 'unknown error'}`, 'error');
+    }
   } catch (e) {
     showToast(`Could not open browser: ${e.message}`, 'error');
   }
