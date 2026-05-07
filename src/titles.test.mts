@@ -1,0 +1,147 @@
+import { describe, it, expect } from 'vitest';
+import {
+  titlesMatch,
+  cleanTitle,
+  guessAuthorFromFilename,
+  shouldUseOpenLibraryTitle,
+} from './titles.ts';
+
+describe('titlesMatch', () => {
+  it('matches identical titles', () => {
+    expect(titlesMatch('The Hobbit', 'The Hobbit')).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(titlesMatch('THE HOBBIT', 'the hobbit')).toBe(true);
+  });
+
+  it('ignores punctuation and collapses whitespace', () => {
+    expect(titlesMatch('The Hobbit!', 'The Hobbit')).toBe(true);
+    expect(titlesMatch('The   Hobbit', 'The Hobbit')).toBe(true);
+    expect(titlesMatch("The Hobbit: There and Back Again", 'The Hobbit  There and Back Again')).toBe(true);
+  });
+
+  it('matches when one title is a word-boundary prefix of the other (>=4 chars)', () => {
+    expect(titlesMatch('The Hobbit', 'The Hobbit: An Unexpected Journey')).toBe(true);
+    expect(titlesMatch('Dune', 'Dune Messiah')).toBe(true);
+  });
+
+  it('rejects too-short prefixes (<4 chars after norm)', () => {
+    // "It" is only 2 chars after norm → not a valid prefix match
+    expect(titlesMatch('It', 'It Stephen King Novel')).toBe(false);
+  });
+
+  it('rejects partial prefixes mid-word', () => {
+    // "Dun" is a prefix of "Dune" but not at a word boundary
+    expect(titlesMatch('Dun', 'Dune')).toBe(false);
+  });
+
+  it('rejects empty / whitespace-only inputs', () => {
+    expect(titlesMatch('', 'The Hobbit')).toBe(false);
+    expect(titlesMatch('The Hobbit', '')).toBe(false);
+    expect(titlesMatch('   ', 'The Hobbit')).toBe(false);
+  });
+
+  it('treats normalised mismatches as different', () => {
+    expect(titlesMatch('The Hobbit', 'The Lord of the Rings')).toBe(false);
+  });
+});
+
+describe('cleanTitle', () => {
+  it('drops common ebook extensions case-insensitively', () => {
+    expect(cleanTitle('book.epub')).toBe('book');
+    expect(cleanTitle('book.MOBI')).toBe('book');
+    expect(cleanTitle('book.azw3')).toBe('book');
+    expect(cleanTitle('book.pdf')).toBe('book');
+    expect(cleanTitle('book.docx')).toBe('book');
+  });
+
+  it("splits on ' -- ' and ' - ' as author separators", () => {
+    expect(cleanTitle('The Hobbit -- Tolkien.epub')).toBe('The Hobbit');
+    expect(cleanTitle('The Hobbit - Tolkien.epub')).toBe('The Hobbit');
+  });
+
+  it('drops trailing parenthetical series markers', () => {
+    expect(cleanTitle('Dune (Dune Chronicles Book 1).epub')).toBe('Dune');
+    expect(cleanTitle('A Game of Thrones (A Song of Ice and Fire 1).epub'))
+      .toBe('A Game of Thrones');
+  });
+
+  it('replaces underscores and collapses spaces', () => {
+    expect(cleanTitle('the_hobbit.epub')).toBe('the hobbit');
+    expect(cleanTitle('the   hobbit.epub')).toBe('the hobbit');
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(cleanTitle('')).toBe('');
+  });
+
+  it('handles a realistic messy filename end-to-end', () => {
+    expect(cleanTitle('The Great Gatsby - F. Scott Fitzgerald (Modern Library).epub'))
+      .toBe('The Great Gatsby');
+  });
+
+  it('does NOT split authors when the dash is wrapped in underscores (no whitespace)', () => {
+    // Author-split regex requires whitespace around the dash. Underscores
+    // between words don't trigger it, so the author stays in the title and
+    // gets surfaced after the underscore→space pass. Documenting current
+    // behaviour so a future change is intentional.
+    expect(cleanTitle('the_great_gatsby__-__f_scott_fitzgerald.epub'))
+      .toBe('the great gatsby - f scott fitzgerald');
+  });
+});
+
+describe('guessAuthorFromFilename', () => {
+  it('extracts author from "Title -- Author.epub"', () => {
+    expect(guessAuthorFromFilename('The Hobbit -- J R R Tolkien.epub')).toBe('J R R Tolkien');
+  });
+
+  it('extracts author from "Title - Author.epub"', () => {
+    expect(guessAuthorFromFilename('Dune - Frank Herbert.mobi')).toBe('Frank Herbert');
+  });
+
+  it('swaps "Last, First" → "First Last"', () => {
+    expect(guessAuthorFromFilename('The Hobbit -- Tolkien, J R R.epub'))
+      .toBe('J R R Tolkien');
+  });
+
+  it('returns null when there is no separator', () => {
+    expect(guessAuthorFromFilename('TheHobbit.epub')).toBeNull();
+    expect(guessAuthorFromFilename('The Hobbit.epub')).toBeNull();
+  });
+
+  it('returns null for empty input', () => {
+    expect(guessAuthorFromFilename('')).toBeNull();
+  });
+
+  it('takes the LAST segment when there are multiple separators (publisher edition prefix)', () => {
+    // "Modern Classics -- The Hobbit -- Tolkien" — the author is the trailing part
+    expect(guessAuthorFromFilename('Modern Classics -- The Hobbit -- Tolkien.epub'))
+      .toBe('Tolkien');
+  });
+});
+
+describe('shouldUseOpenLibraryTitle', () => {
+  it('rejects empty Open Library title', () => {
+    expect(shouldUseOpenLibraryTitle('Dune', '')).toBe(false);
+  });
+
+  it('rejects when titles are byte-identical (no point swapping)', () => {
+    expect(shouldUseOpenLibraryTitle('Dune', 'Dune')).toBe(false);
+  });
+
+  it('rejects when titlesMatch fails (different books)', () => {
+    expect(shouldUseOpenLibraryTitle('Dune', 'The Hobbit')).toBe(false);
+  });
+
+  it('accepts when OL title is a clean variant within +4 chars', () => {
+    // "The Hobbit" (11) vs "The Hobbit." (12) — OL variant within budget
+    expect(shouldUseOpenLibraryTitle('The Hobbit', 'The Hobbit.')).toBe(true);
+    // "Dune" (4) vs "Dune Messiah" (12) — too long, reject
+    expect(shouldUseOpenLibraryTitle('Dune', 'Dune Messiah')).toBe(false);
+  });
+
+  it('accepts a recased OL title when titlesMatch agrees', () => {
+    expect(shouldUseOpenLibraryTitle('the hobbit', 'The Hobbit')).toBe(true);
+  });
+});
