@@ -92,7 +92,7 @@
       errorEl.style.padding = '32px';
       errorEl.style.color = '#b00';
       errorEl.style.font = '14px system-ui';
-      errorEl.textContent = `Reader failed to load: ${e?.message || String(e)}`;
+      errorEl.textContent = `Reader failed to load: ${e?.message ?? String(e)}`;
       viewportEl.replaceChildren(errorEl);
       return;
     }
