@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Tests + typecheck don't need macOS, but the package depends on
+    # better-sqlite3 which is a native module — keep the matrix tight.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  build:
+    # electron-builder --mac only works on macOS runners. This job catches
+    # the kind of "missing from build.files" bug that shipped silently in
+    # earlier PRs and was only fixed in #24.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          # Skip code signing in CI — we don't have certs there, and the
+          # `target: dir` build doesn't need a signed bundle to verify the
+          # files allowlist.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
