@@ -38,17 +38,21 @@
   };
 
   // Resolve initial theme: explicit override > app theme (slate=dark) > prefers-color-scheme.
+  // Note: the renderer always sets a `data-theme` attribute, so we check the user's
+  // explicit app-theme choice in localStorage rather than the attribute presence.
   function resolveDefaultTheme() {
     const stored = localStorage.getItem(THEME_KEY);
     if (stored === 'light' || stored === 'dark') return stored;
     const appTheme = document.documentElement.getAttribute('data-theme');
     if (appTheme === 'slate') return 'dark';
-    if (!appTheme && window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
+    const userPickedAppTheme = localStorage.getItem('airshelf-theme') !== null;
+    if (!userPickedAppTheme && window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
     return 'light';
   }
 
   function applyReaderTheme(name) {
     document.body.classList.toggle('reader-dark', name === 'dark');
+    document.body.classList.toggle('reader-light', name === 'light');
     if (themeBtn) themeBtn.setAttribute('aria-pressed', String(name === 'dark'));
     if (rendition) {
       try { rendition.themes.select(name); } catch (_) {}

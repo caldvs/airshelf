@@ -1211,7 +1211,9 @@ body {
 body.reader-dark #reader-theme-btn .reader-theme-icon-dark { display: none; }
 body.reader-dark #reader-theme-btn .reader-theme-icon-light { display: inline; }
 
-/* Force the reader chrome to dark when the user picks dark mode in a light app theme. */
+/* Force the reader chrome to match the user's reader-theme choice independent of the
+ * surrounding app theme. Both directions need overrides so e.g. picking light while the
+ * app is in slate doesn't leave the toolbar/TOC stranded in dark. */
 body.reader-dark .reader {
   --bg: #1a1d23;
   --bg-elev: #22262e;
@@ -1223,4 +1225,16 @@ body.reader-dark .reader {
   --reader-zone-color: rgba(255, 255, 255, 0.4);
   --reader-zone-hover-bg: rgba(255, 255, 255, 0.04);
   --reader-progress-track: rgba(255, 255, 255, 0.1);
+}
+body.reader-light .reader {
+  --bg: #ffffff;
+  --bg-elev: #f7f8fa;
+  --text: #1a1d23;
+  --text-sub: #5b6371;
+  --reader-border: rgba(0, 0, 0, 0.06);
+  --reader-btn-border: rgba(0, 0, 0, 0.08);
+  --reader-btn-hover-bg: rgba(0, 0, 0, 0.04);
+  --reader-zone-color: rgba(0, 0, 0, 0.4);
+  --reader-zone-hover-bg: rgba(0, 0, 0, 0.03);
+  --reader-progress-track: rgba(0, 0, 0, 0.1);
 }
