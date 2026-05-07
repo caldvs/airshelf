@@ -230,6 +230,26 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+
+  .spinner {
+    animation: none !important;
+  }
+
+  .nav-item:active,
+  .pill-btn:active,
+  .book-card:hover,
+  .theme-swatch:active,
+  .modal-btn:active {
+    transform: none !important;
+  }
+
+  .header-add:active {
+    transform: translateY(-50%) !important;
+  }
+
+  .reader-toc {
+    transition: none !important;
+  }
 }
 
 /* ============================================================
