@@ -1,5 +1,5 @@
-// Pure title-handling helpers. Mirrors src/titles.ts (kept around for the
-// pure-utils test coverage in #9) — both will be unified once #9 lands.
+// Pure title-handling helpers used by main.js. Mirrors the subset currently
+// shared with src/titles.ts (kept around for pure-utils test coverage in #9).
 
 // Loose title matching: true if one title is effectively a prefix of the
 // other after lowercase + punctuation strip. Used to decide whether two
