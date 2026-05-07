@@ -6,10 +6,12 @@ import { rewriteExthSection, buildExthRecord } from './inject-asin.js';
 //
 // MOBI header layout used here:
 //   0x00  4 bytes  "MOBI" magic
-//   0x04  4 bytes  header length (= 0x80)
+//   0x04  4 bytes  header length (= MOBI_LEN, 0x84 below — sized to include
+//                  the EXTH-present flag at 0x80)
 //   0x44  4 bytes  full-name offset (set after EXTH end so the function
 //                  doesn't try to shift it through our test data)
-//   0x80  4 bytes  EXTH-present flag (will be set/cleared by the function)
+//   0x80  4 bytes  EXTH-present flag (set by rewriteExthSection on success;
+//                  the function only ever sets it, never clears it)
 function makeRecord0(exthRecords) {
   const MOBI_LEN = 0x84;        // include the EXTH flag at 0x80
   const exthBody = Buffer.concat(exthRecords.map(({ type, data }) => buildExthRecord(type, data)));
