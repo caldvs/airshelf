@@ -28,6 +28,7 @@
   const FONT_KEY = 'airshelf-reader-font';
   const THEME_KEY = 'airshelf-reader-theme';
   const LOC_KEY = (id) => `airshelf-reader-loc:${id}`;
+  const PCT_KEY = (id) => `airshelf-reader-pct:${id}`;
   const FONT_MIN = 80;
   const FONT_MAX = 180;
   const FONT_STEP = 10;
@@ -212,6 +213,11 @@
       if (typeof pct === 'number' && !Number.isNaN(pct)) {
         progressEl.value = String(Math.round(pct * 1000));
         posEl.textContent = `${Math.round(pct * 100)}%`;
+        if (currentBookId) {
+          // Persist so the shelf can render a progress badge without
+          // having to load the book and rebuild the locations index.
+          localStorage.setItem(PCT_KEY(currentBookId), String(Math.round(pct * 100)));
+        }
         return;
       }
     }
