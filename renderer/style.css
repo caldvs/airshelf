@@ -559,8 +559,9 @@ body {
 
 .book-cover.placeholder { background: var(--placeholder-grad); }
 
-.book-cover.finished img,
-.book-cover.finished { opacity: 0.65; }
+/* Dim only the artwork on finished covers — applying opacity to the parent
+ * would also fade the progress bar and "✓ Done" pill. */
+.book-cover.finished img { opacity: 0.6; }
 
 .cover-progress {
   position: absolute;

@@ -24,6 +24,7 @@
   let currentLocation = null;
   let locationsReady = false;
   let resizeTimer = null;
+  let lastWrittenPct = null;
 
   const FONT_KEY = 'airshelf-reader-font';
   const THEME_KEY = 'airshelf-reader-theme';
@@ -101,6 +102,7 @@
     // index is still building, producing junk percentages.
     locationsReady = false;
     currentLocation = null;
+    lastWrittenPct = null;
     if (progressEl) progressEl.value = '0';
     if (posEl) posEl.textContent = '—';
 
@@ -212,11 +214,14 @@
       const pct = book.locations.percentageFromCfi(loc.start.cfi);
       if (typeof pct === 'number' && !Number.isNaN(pct)) {
         progressEl.value = String(Math.round(pct * 1000));
-        posEl.textContent = `${Math.round(pct * 100)}%`;
-        if (currentBookId) {
-          // Persist so the shelf can render a progress badge without
-          // having to load the book and rebuild the locations index.
-          localStorage.setItem(PCT_KEY(currentBookId), String(Math.round(pct * 100)));
+        const intPct = Math.round(pct * 100);
+        posEl.textContent = `${intPct}%`;
+        if (currentBookId && intPct !== lastWrittenPct) {
+          // Persist so the shelf can render a progress badge without having to
+          // load the book and rebuild the locations index. Skip when the
+          // rounded value hasn't moved — `relocated` fires on every page turn.
+          localStorage.setItem(PCT_KEY(currentBookId), String(intPct));
+          lastWrittenPct = intPct;
         }
         return;
       }

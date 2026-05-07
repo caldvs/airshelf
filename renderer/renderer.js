@@ -102,7 +102,7 @@ function renderBooks(books) {
 
       const pct = readReaderProgress(b.id);
       if (pct !== null) {
-        const done = pct >= 99;
+        const done = pct >= 100;
         if (done) cover.classList.add('finished');
         const bar = document.createElement('div');
         bar.className = 'cover-progress';
