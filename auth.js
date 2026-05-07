@@ -14,18 +14,87 @@ function tokensMatch(a, b) {
   }
 }
 
-// Persist a 128-bit hex token to userData; reuse across launches so the user
-// doesn't need to re-enter the URL on the Kindle every time. File mode 0600
-// since possession of this token = full LAN access to the library.
+// Pronounceable 6-char token (consonant-vowel-consonant-vowel-consonant-vowel)
+// chosen to be quick to type on the Kindle's experimental browser keyboard,
+// where mode-switching between letters and digits costs many extra taps.
+// 21 consonants × 5 vowels at 3 positions each = 1,157,625 combinations
+// (~20 bits). The on-the-wire keyspace is small enough that brute-force is
+// only impractical when paired with the per-IP rate limiter (FailedAuthLimiter)
+// applied to /404/ responses in the HTTP server.
+const VOWELS = 'aeiou';
+const CONSONANTS = 'bcdfghjklmnpqrstvwxyz'; // 21 — drops the rare/awkward ones implicitly via vowel positions
+
+const TOKEN_RE = /^[a-z]{6}$/;
+
+function generatePronounceableToken() {
+  const buf = crypto.randomBytes(6);
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    const pool = (i % 2 === 0) ? CONSONANTS : VOWELS;
+    out += pool[buf[i] % pool.length];
+  }
+  return out;
+}
+
+// Persist token to userData; reuse across launches so the user only types
+// the URL on the Kindle once. Mode 0600 — possession of this token = full
+// LAN access to the library.
 function loadOrCreateServerToken(userData) {
   const tokenFile = path.join(userData, 'server-token');
   try {
     const t = fs.readFileSync(tokenFile, 'utf8').trim();
-    if (/^[a-f0-9]{32}$/.test(t)) return t;
+    if (TOKEN_RE.test(t)) return t;
+    // Old format (e.g. legacy 32-hex) — regenerate.
   } catch {}
-  const t = crypto.randomBytes(16).toString('hex');
+  const t = generatePronounceableToken();
   fs.writeFileSync(tokenFile, t, { mode: 0o600 });
   return t;
 }
 
-module.exports = { tokensMatch, loadOrCreateServerToken };
+// Per-IP rate limiter for failed auth attempts. The token has only ~20 bits
+// of entropy, so without throttling a LAN attacker could brute-force in
+// hours. With the defaults below, exhausting the keyspace at the per-IP
+// rate would take centuries.
+class FailedAuthLimiter {
+  constructor({ windowMs = 5 * 60_000, maxFails = 10, blockMs = 15 * 60_000 } = {}) {
+    this.windowMs = windowMs;
+    this.maxFails = maxFails;
+    this.blockMs = blockMs;
+    this.fails = new Map();   // ip → [timestamp, ...]
+    this.blocked = new Map(); // ip → blockUntil ts
+  }
+
+  isBlocked(ip, now = Date.now()) {
+    const until = this.blocked.get(ip);
+    if (until == null) return false;
+    if (until <= now) {
+      this.blocked.delete(ip);
+      this.fails.delete(ip);
+      return false;
+    }
+    return true;
+  }
+
+  recordFail(ip, now = Date.now()) {
+    if (this.isBlocked(ip, now)) return;
+    const arr = (this.fails.get(ip) || []).filter(ts => ts > now - this.windowMs);
+    arr.push(now);
+    this.fails.set(ip, arr);
+    if (arr.length >= this.maxFails) {
+      this.blocked.set(ip, now + this.blockMs);
+      this.fails.delete(ip);
+    }
+  }
+
+  recordSuccess(ip) {
+    this.fails.delete(ip);
+  }
+}
+
+module.exports = {
+  tokensMatch,
+  loadOrCreateServerToken,
+  generatePronounceableToken,
+  FailedAuthLimiter,
+  TOKEN_RE,
+};

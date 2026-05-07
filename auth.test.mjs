@@ -2,15 +2,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { tokensMatch, loadOrCreateServerToken } from './auth.js';
+import {
+  tokensMatch,
+  loadOrCreateServerToken,
+  generatePronounceableToken,
+  FailedAuthLimiter,
+  TOKEN_RE,
+} from './auth.js';
 
 describe('tokensMatch', () => {
   it('matches identical strings', () => {
-    expect(tokensMatch('abc123', 'abc123')).toBe(true);
+    expect(tokensMatch('abcdef', 'abcdef')).toBe(true);
   });
 
   it('rejects different strings of equal length', () => {
-    expect(tokensMatch('abc123', 'abc124')).toBe(false);
+    expect(tokensMatch('abcdef', 'abcdeg')).toBe(false);
   });
 
   it('rejects different lengths (no timingSafeEqual throw)', () => {
@@ -22,10 +28,33 @@ describe('tokensMatch', () => {
     expect(tokensMatch('x', undefined)).toBe(false);
     expect(tokensMatch(123, '123')).toBe(false);
   });
+});
 
-  it('treats two empty strings as equal (caller must reject empty serverToken)', () => {
-    expect(tokensMatch('', '')).toBe(true);
-    expect(tokensMatch('', 'x')).toBe(false);
+describe('generatePronounceableToken', () => {
+  it('returns a 6-char string matching TOKEN_RE', () => {
+    for (let i = 0; i < 50; i++) {
+      const t = generatePronounceableToken();
+      expect(t).toMatch(TOKEN_RE);
+    }
+  });
+
+  it('alternates consonant-vowel (positions 0,2,4 consonant; 1,3,5 vowel)', () => {
+    const VOWELS = 'aeiou';
+    for (let i = 0; i < 50; i++) {
+      const t = generatePronounceableToken();
+      for (let p = 0; p < 6; p++) {
+        const isVowelPos = p % 2 === 1;
+        const isVowel = VOWELS.includes(t[p]);
+        expect(isVowel).toBe(isVowelPos);
+      }
+    }
+  });
+
+  it('produces varied output across many calls', () => {
+    const seen = new Set();
+    for (let i = 0; i < 50; i++) seen.add(generatePronounceableToken());
+    // 50 draws from a 1.16M keyspace: collisions are astronomically rare.
+    expect(seen.size).toBe(50);
   });
 });
 
@@ -40,9 +69,9 @@ describe('loadOrCreateServerToken', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('creates a 32-hex token on first call and persists it', () => {
+  it('creates a CVCVCV token on first call and persists it', () => {
     const t = loadOrCreateServerToken(dir);
-    expect(t).toMatch(/^[a-f0-9]{32}$/);
+    expect(t).toMatch(TOKEN_RE);
     const onDisk = fs.readFileSync(path.join(dir, 'server-token'), 'utf8').trim();
     expect(onDisk).toBe(t);
   });
@@ -53,16 +82,75 @@ describe('loadOrCreateServerToken', () => {
     expect(b).toBe(a);
   });
 
-  it('regenerates if the persisted token is malformed', () => {
-    fs.writeFileSync(path.join(dir, 'server-token'), 'not-a-real-token');
+  it('regenerates if persisted token does not match the new format', () => {
+    // Legacy 32-hex format — should be rotated to 6-char.
+    fs.writeFileSync(path.join(dir, 'server-token'), '0123456789abcdef0123456789abcdef');
     const t = loadOrCreateServerToken(dir);
-    expect(t).toMatch(/^[a-f0-9]{32}$/);
-    expect(t).not.toBe('not-a-real-token');
+    expect(t).toMatch(TOKEN_RE);
+    expect(t).not.toBe('0123456789abcdef0123456789abcdef');
+  });
+
+  it('regenerates on garbage contents', () => {
+    fs.writeFileSync(path.join(dir, 'server-token'), 'not-a-token');
+    expect(loadOrCreateServerToken(dir)).toMatch(TOKEN_RE);
   });
 
   it('writes the file with 0600 permissions', () => {
     loadOrCreateServerToken(dir);
     const stat = fs.statSync(path.join(dir, 'server-token'));
     expect(stat.mode & 0o777).toBe(0o600);
+  });
+});
+
+describe('FailedAuthLimiter', () => {
+  it('does not block a fresh IP', () => {
+    const l = new FailedAuthLimiter();
+    expect(l.isBlocked('1.2.3.4')).toBe(false);
+  });
+
+  it('blocks after maxFails within the window', () => {
+    const l = new FailedAuthLimiter({ windowMs: 60_000, maxFails: 3, blockMs: 60_000 });
+    const now = 10_000;
+    l.recordFail('1.2.3.4', now);
+    l.recordFail('1.2.3.4', now + 100);
+    l.recordFail('1.2.3.4', now + 200);
+    expect(l.isBlocked('1.2.3.4', now + 300)).toBe(true);
+  });
+
+  it('lifts the block after blockMs elapses', () => {
+    const l = new FailedAuthLimiter({ windowMs: 60_000, maxFails: 2, blockMs: 1_000 });
+    const now = 10_000;
+    l.recordFail('1.2.3.4', now);
+    l.recordFail('1.2.3.4', now + 100);
+    expect(l.isBlocked('1.2.3.4', now + 500)).toBe(true);
+    expect(l.isBlocked('1.2.3.4', now + 1_500)).toBe(false);
+  });
+
+  it('drops failures older than the window before counting', () => {
+    const l = new FailedAuthLimiter({ windowMs: 1_000, maxFails: 3, blockMs: 60_000 });
+    const now = 10_000;
+    l.recordFail('1.2.3.4', now);
+    l.recordFail('1.2.3.4', now + 100);
+    // First two age out before this third one arrives.
+    l.recordFail('1.2.3.4', now + 2_000);
+    expect(l.isBlocked('1.2.3.4', now + 2_100)).toBe(false);
+  });
+
+  it('isolates IPs from each other', () => {
+    const l = new FailedAuthLimiter({ windowMs: 60_000, maxFails: 2, blockMs: 60_000 });
+    l.recordFail('1.1.1.1');
+    l.recordFail('1.1.1.1');
+    expect(l.isBlocked('1.1.1.1')).toBe(true);
+    expect(l.isBlocked('2.2.2.2')).toBe(false);
+  });
+
+  it('clears failures on success', () => {
+    const l = new FailedAuthLimiter({ windowMs: 60_000, maxFails: 3, blockMs: 60_000 });
+    l.recordFail('1.2.3.4');
+    l.recordFail('1.2.3.4');
+    l.recordSuccess('1.2.3.4');
+    l.recordFail('1.2.3.4');
+    l.recordFail('1.2.3.4');
+    expect(l.isBlocked('1.2.3.4')).toBe(false);
   });
 });

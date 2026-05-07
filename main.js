@@ -206,7 +206,8 @@ async function getOrBuildReaderEpub(book) {
   return p;
 }
 
-const { tokensMatch, loadOrCreateServerToken } = require('./auth.js');
+const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const authLimiter = new FailedAuthLimiter();
 
 let mainWindow = null;
 let server = null;
@@ -1108,14 +1109,22 @@ function renderIndexHtml() {
 function startServer() {
   if (server) return;
   server = http.createServer(async (req, res) => {
+    const ip = req.socket.remoteAddress || 'unknown';
     try {
-      const url = new URL(req.url, `http://${req.headers.host}`);
-      // Require /<32-hex-token>/... on every request. Without it, 404 (not 401)
-      // so the server is indistinguishable from no server at all.
-      const tokMatch = url.pathname.match(/^\/([a-f0-9]{32})(\/.*)?$/);
-      if (!tokMatch || !tokensMatch(tokMatch[1], serverToken)) {
+      // Per-IP rate limit: with a 6-char token (~20 bits), throttling is what
+      // keeps brute-force impractical. Block returns 404 (stealth) not 429.
+      if (authLimiter.isBlocked(ip)) {
         res.writeHead(404); res.end('Not found'); return;
       }
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      // Require /<6-lowercase-token>/... on every request. Without it, 404
+      // (not 401) so the server is indistinguishable from no server at all.
+      const tokMatch = url.pathname.match(/^\/([a-z]{6})(\/.*)?$/);
+      if (!tokMatch || !tokensMatch(tokMatch[1], serverToken)) {
+        authLimiter.recordFail(ip);
+        res.writeHead(404); res.end('Not found'); return;
+      }
+      authLimiter.recordSuccess(ip);
       const subPath = tokMatch[2] || '/';
       if (subPath === '/screenshot') {
         res.writeHead(200, {
