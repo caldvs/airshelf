@@ -6,8 +6,8 @@
 npm start                       # run app (Electron)
 npm run build                   # bundle .app (electron-builder, macOS)
 npm run typecheck               # tsc --noEmit
-npm test                        # vitest (no tests written yet)
-npm test -- src/foo.test.ts     # single file
+npm test                        # vitest (.test.mjs, ESM-only)
+npm test -- auth.test.mjs       # single file
 ```
 
 ## Architecture

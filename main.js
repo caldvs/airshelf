@@ -206,10 +206,14 @@ async function getOrBuildReaderEpub(book) {
   return p;
 }
 
+const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const authLimiter = new FailedAuthLimiter();
+
 let mainWindow = null;
 let server = null;
 let booksDir = null;
 let metaFile = null;
+let serverToken = null;
 
 // ---------- Book storage ----------
 
@@ -893,11 +897,11 @@ function renderScreenshotHtml() {
   const books = listBooks().slice(0, 8);
   const rendered = books.map(b => {
     const coverMarkup = b.cover
-      ? `<img src="/cover/${b.id}" alt="">`
+      ? `<img src="/${serverToken}/cover/${b.id}" alt="">`
       : `<div class="book-cover placeholder" style="font-size:11px;">${escapeHtml(b.title.slice(0, 30))}</div>`;
     return `
       <div class="book-card">
-        <div class="book-cover">${b.cover ? `<img src="/cover/${b.id}" alt="">` : escapeHtml(b.title.slice(0, 24))}</div>
+        <div class="book-cover">${b.cover ? `<img src="/${serverToken}/cover/${b.id}" alt="">` : escapeHtml(b.title.slice(0, 24))}</div>
         <div class="book-title">${escapeHtml(b.title)}</div>
         <div class="book-size">${b.ext.toUpperCase()} &middot; ${humanSize(b.size)}</div>
       </div>
@@ -972,7 +976,7 @@ function renderIndexHtml() {
       <tr>
         <td class="cover-cell" valign="middle" width="190">
           ${b.cover
-            ? `<div class="cover-frame" style="background-image:url('/cover/${b.id}')"></div>`
+            ? `<div class="cover-frame" style="background-image:url('/${serverToken}/cover/${b.id}')"></div>`
             : `<div class="cover-frame cover-fallback">${escapeHtml(b.title.slice(0, 40))}</div>`}
         </td>
         <td class="info-cell" valign="middle">
@@ -981,7 +985,7 @@ function renderIndexHtml() {
           <div class="meta">AZW3 &middot; ${humanSize(b.size)}</div>
         </td>
         <td class="btn-cell" valign="middle" align="right">
-          <a class="dl-btn" href="/download/${b.id}">Download</a>
+          <a class="dl-btn" href="/${serverToken}/download/${b.id}">Download</a>
         </td>
       </tr>
       <tr><td colspan="3" class="spacer"></td></tr>
@@ -1105,9 +1109,24 @@ function renderIndexHtml() {
 function startServer() {
   if (server) return;
   server = http.createServer(async (req, res) => {
+    const ip = req.socket.remoteAddress || 'unknown';
     try {
+      // Per-IP rate limit: with a 6-char token (~20 bits), throttling is what
+      // keeps brute-force impractical. Block returns 404 (stealth) not 429.
+      if (authLimiter.isBlocked(ip)) {
+        res.writeHead(404); res.end('Not found'); return;
+      }
       const url = new URL(req.url, `http://${req.headers.host}`);
-      if (url.pathname === '/screenshot') {
+      // Require /<6-lowercase-token>/... on every request. Without it, 404
+      // (not 401) so the server is indistinguishable from no server at all.
+      const tokMatch = url.pathname.match(/^\/([a-z]{6})(\/.*)?$/);
+      if (!tokMatch || !tokensMatch(tokMatch[1], serverToken)) {
+        authLimiter.recordFail(ip);
+        res.writeHead(404); res.end('Not found'); return;
+      }
+      authLimiter.recordSuccess(ip);
+      const subPath = tokMatch[2] || '/';
+      if (subPath === '/screenshot') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store',
@@ -1115,7 +1134,7 @@ function startServer() {
         res.end(renderScreenshotHtml());
         return;
       }
-      if (url.pathname === '/' || url.pathname === '/index.html') {
+      if (subPath === '/' || subPath === '/index.html') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
@@ -1125,7 +1144,7 @@ function startServer() {
         res.end(renderIndexHtml());
         return;
       }
-      const coverMatch = url.pathname.match(/^\/cover\/([a-f0-9]+)$/);
+      const coverMatch = subPath.match(/^\/cover\/([a-f0-9]+)$/);
       if (coverMatch) {
         const id = coverMatch[1];
         const book = listBooks().find(b => b.id === id);
@@ -1167,7 +1186,7 @@ function startServer() {
       // PW3's experimental browser pre-checks URL extensions against a
       // whitelist; by omitting the extension entirely, we bypass that check
       // and let Content-Disposition set the filename instead.
-      const dlMatch = url.pathname.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/);
+      const dlMatch = subPath.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/);
       if (dlMatch) {
         const id = dlMatch[1];
         const book = listBooks().find(b => b.id === id);
@@ -1190,9 +1209,12 @@ function startServer() {
         return;
       }
       // Streams the original .epub for the in-app reader (epubjs needs the
-      // raw zip with proper MIME). Loopback-only — bound to 0.0.0.0 already
-      // for the Kindle, but Range support keeps epubjs happy on big books.
-      const epubMatch = url.pathname.match(/^\/epub\/([a-f0-9]+)$/);
+      // raw zip with proper MIME). The reader fetches via loopback, but the
+      // route is reachable from LAN with the token like every other route —
+      // CORS is set to 'null' (matches file:// origin) and Range support
+      // keeps epubjs happy on big books. To restrict to loopback, check
+      // req.socket.remoteAddress for 127.0.0.1 / ::1 / ::ffff:127.0.0.1.
+      const epubMatch = subPath.match(/^\/epub\/([a-f0-9]+)$/);
       if (epubMatch) {
         const id = epubMatch[1];
         const book = listBooks().find(b => b.id === id);
@@ -1201,12 +1223,12 @@ function startServer() {
         try {
           epubPath = await getOrBuildReaderEpub(book);
         } catch (e) {
-          res.writeHead(500, { 'Access-Control-Allow-Origin': '*' });
+          res.writeHead(500, { 'Access-Control-Allow-Origin': 'null' });
           res.end(`Build failed: ${e.message}`);
           return;
         }
         if (!epubPath || !fs.existsSync(epubPath)) {
-          res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
+          res.writeHead(404, { 'Access-Control-Allow-Origin': 'null' });
           res.end('Missing'); return;
         }
         const stat = fs.statSync(epubPath);
@@ -1215,14 +1237,26 @@ function startServer() {
           'Content-Type': 'application/epub+zip',
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'private, max-age=3600',
-          // The reader iframe loads from file:// — allow it to fetch the epub.
-          'Access-Control-Allow-Origin': '*',
+          // The reader iframe loads from file:// (Origin: null). 'null'
+          // matches that without opening to arbitrary websites the way '*' did.
+          'Access-Control-Allow-Origin': 'null',
         };
         if (range) {
           const m = /bytes=(\d+)-(\d*)/.exec(range);
           if (m) {
             const start = parseInt(m[1], 10);
-            const end = m[2] ? parseInt(m[2], 10) : stat.size - 1;
+            const requestedEnd = m[2] ? parseInt(m[2], 10) : stat.size - 1;
+            // Reject ranges past EOF or backwards. Spec-compliant 416 with
+            // Content-Range: bytes */<size>.
+            if (start >= stat.size || requestedEnd < start) {
+              res.writeHead(416, {
+                'Content-Range': `bytes */${stat.size}`,
+                'Access-Control-Allow-Origin': 'null',
+              });
+              res.end();
+              return;
+            }
+            const end = Math.min(requestedEnd, stat.size - 1);
             headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
             headers['Content-Length'] = end - start + 1;
             res.writeHead(206, headers);
@@ -1269,6 +1303,7 @@ app.whenReady().then(() => {
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
+  serverToken = loadOrCreateServerToken(userData);
 
   startServer();
   createWindow();
@@ -1345,10 +1380,12 @@ async function addManyBooks(paths) {
 ipcMain.handle('books:delete', (_e, id) => deleteBook(id));
 
 ipcMain.handle('server:info', () => {
+  const ip = getLocalIP();
   return {
-    ip: getLocalIP(),
+    ip,
     port: PORT,
-    url: `http://${getLocalIP()}:${PORT}`,
+    token: serverToken,
+    url: `http://${ip}:${PORT}/${serverToken}/`,
     running: !!server,
   };
 });
@@ -1484,7 +1521,7 @@ ipcMain.handle('books:showContextMenu', (e, id) => {
     {
       label: 'Copy download URL',
       click: () => {
-        const url = `http://${getLocalIP()}:${PORT}/download/${book.id}`;
+        const url = `http://${getLocalIP()}:${PORT}/${serverToken}/download/${book.id}`;
         require('electron').clipboard.writeText(url);
       },
     },
