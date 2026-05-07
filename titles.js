@@ -1,5 +1,6 @@
-// Pure title-handling helpers used by main.js. Mirrors the subset currently
-// shared with src/titles.ts (kept around for pure-utils test coverage in #9).
+// Pure title-handling helpers used by main.js. Single canonical impl —
+// the duplicate src/titles.ts that used to exist for test coverage was
+// removed; the tests in src/titles.test.mts now import directly from here.
 
 // Loose title matching: true if one title is effectively a prefix of the
 // other after lowercase + punctuation strip. Used to decide whether two
@@ -47,4 +48,14 @@ function guessAuthorFromFilename(raw) {
   return null;
 }
 
-module.exports = { titlesMatch, cleanTitle, guessAuthorFromFilename };
+// Decide whether to adopt an Open Library title as the canonical one.
+// Only adopt if OL's title is a near-match (so we know it's the same book)
+// and isn't dramatically longer (ours is often the cleaner trimmed form).
+function shouldUseOpenLibraryTitle(local, ol) {
+  if (!ol) return false;
+  if (ol === local) return false;
+  if (!titlesMatch(ol, local)) return false;
+  return ol.length <= local.length + 4;
+}
+
+module.exports = { titlesMatch, cleanTitle, guessAuthorFromFilename, shouldUseOpenLibraryTitle };
