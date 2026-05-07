@@ -20,6 +20,7 @@
     },
     "files": [
       "main.js",
+      "titles.js",
       "preload.js",
       "inject-asin.js",
       "auth.js",
