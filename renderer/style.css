@@ -901,8 +901,10 @@ body {
   color: var(--text-sub);
 }
 
-/* Per-theme swatch colors. These were inline `style="..."` attributes
- * before; moving to classes lets us ship a strict style-src CSP. */
+/* Per-theme swatch colors. Lifted out of inline `style="..."` attributes
+ * so the static markup contains no inline styles. The CSP still allows
+ * 'unsafe-inline' for style-src because runtime DOM mutations (progress
+ * bar width, reader error fallback) need it. */
 .theme-swatch[data-theme="cloud"] .swatch-color { background: #f7f8fa; border-color: #dcdce3; }
 .theme-swatch[data-theme="cloud"] .swatch-dot { background: #2563eb; }
 .theme-swatch[data-theme="sand"] .swatch-color { background: #f5f0e8; border-color: #d6cab5; }

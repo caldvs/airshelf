@@ -5,9 +5,12 @@
   <title>Airshelf</title>
   <!-- Defence-in-depth alongside renderer sandboxing. file:// origin renders
        this page; everything else is loaded over file:// or fetched from the
-       loopback server. epubjs renders books inside blob: iframes. -->
+       loopback server. epubjs renders books inside blob: iframes.
+       style-src allows 'unsafe-inline' because the renderer assigns runtime
+       inline styles via the DOM (e.g. progress-bar width, reader error
+       fallback). script-src stays strict — that's the lever for XSS. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: http://127.0.0.1:6790; font-src 'self' data:; connect-src http://127.0.0.1:6790; frame-src 'self' blob:; object-src 'none'; base-uri 'none';">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:6790; font-src 'self' data:; connect-src http://127.0.0.1:6790; frame-src 'self' blob:; object-src 'none'; base-uri 'none';">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
