@@ -284,13 +284,6 @@ body {
   justify-content: flex-end;
 }
 
-.topbar-actions {
-  margin-left: auto;
-  display: flex;
-  gap: var(--space-2);
-  -webkit-app-region: no-drag;
-}
-
 /* ============================================================
    Bottom glass tab bar
    ============================================================ */
