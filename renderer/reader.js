@@ -38,15 +38,14 @@
   };
 
   // Resolve initial theme: explicit override > app theme (slate=dark) > prefers-color-scheme.
-  // Note: the renderer always sets a `data-theme` attribute, so we check the user's
-  // explicit app-theme choice in localStorage rather than the attribute presence.
+  // The renderer always sets a `data-theme`, so only slate should force dark here;
+  // the other app themes fall through to the OS preference before defaulting light.
   function resolveDefaultTheme() {
     const stored = localStorage.getItem(THEME_KEY);
     if (stored === 'light' || stored === 'dark') return stored;
     const appTheme = document.documentElement.getAttribute('data-theme');
     if (appTheme === 'slate') return 'dark';
-    const userPickedAppTheme = localStorage.getItem('airshelf-theme') !== null;
-    if (!userPickedAppTheme && window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
+    if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
     return 'light';
   }
 
