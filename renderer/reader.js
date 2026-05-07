@@ -53,7 +53,7 @@
     titleEl.textContent = bookMeta.title || '';
     authorEl.textContent = [bookMeta.author, bookMeta.year].filter(Boolean).join(' · ');
     readerEl.classList.add('active');
-    tocEl.classList.remove('open');
+    tocEl.classList.remove('open'); tocBtn.setAttribute('aria-expanded', 'false');
 
     // Tear down any previous rendition before swapping books.
     if (rendition) {
@@ -122,7 +122,7 @@
     rendition.on('keyup', handleKeyForward);
     rendition.on('keydown', handleKeyForward);
     rendition.on('click', () => {
-      if (tocEl.classList.contains('open')) tocEl.classList.remove('open');
+      if (tocEl.classList.contains('open')) tocEl.classList.remove('open'); tocBtn.setAttribute('aria-expanded', 'false');
     });
 
     // Build locations index for the progress slider — backgrounded; the
@@ -168,15 +168,17 @@
     const flatten = (items, depth) => {
       for (const item of items) {
         const li = document.createElement('li');
-        const a = document.createElement('a');
-        a.textContent = item.label.trim();
-        a.className = `toc-depth-${Math.min(depth, 2)}`;
-        a.addEventListener('click', (e) => {
-          e.preventDefault();
+        // Real <button> instead of <a> without href — focusable via Tab,
+        // activates on Enter/Space without extra handlers.
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = item.label.trim();
+        btn.className = `toc-depth-${Math.min(depth, 2)}`;
+        btn.addEventListener('click', () => {
           if (rendition) rendition.display(item.href);
-          tocEl.classList.remove('open');
+          tocEl.classList.remove('open'); tocBtn.setAttribute('aria-expanded', 'false');
         });
-        li.appendChild(a);
+        li.appendChild(btn);
         tocList.appendChild(li);
         if (item.subitems && item.subitems.length) flatten(item.subitems, depth + 1);
       }
@@ -207,7 +209,10 @@
   nextZone.addEventListener('click', () => rendition && rendition.next());
   fontUpBtn.addEventListener('click', () => setFontPct(getFontPct() + FONT_STEP));
   fontDownBtn.addEventListener('click', () => setFontPct(getFontPct() - FONT_STEP));
-  tocBtn.addEventListener('click', () => tocEl.classList.toggle('open'));
+  tocBtn.addEventListener('click', () => {
+    const open = tocEl.classList.toggle('open');
+    tocBtn.setAttribute('aria-expanded', String(open));
+  });
 
   progressEl.addEventListener('change', () => {
     if (!locationsReady || !book || !rendition) return;

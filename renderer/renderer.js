@@ -61,9 +61,16 @@ function renderBooks(books) {
   }
 
   for (const b of books) {
+      // Card is a div (it contains block-level children which <button> can't
+      // hold) but presents as a button to AT: role + tabindex + keyboard
+      // activation handler. This was previously a plain <div> with click
+      // handlers — unreachable without a mouse.
       const card = document.createElement('div');
       card.className = 'book-card';
       card.dataset.id = b.id;
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('aria-label', b.author ? `${b.title} by ${b.author}` : b.title);
       if (b.id === selectedBookId) card.classList.add('selected');
 
       const cover = document.createElement('div');
@@ -72,6 +79,12 @@ function renderBooks(books) {
         const img = document.createElement('img');
         img.src = b.coverUrl;
         img.draggable = false;
+        // Decorative — the card already has aria-label with the title.
+        // Setting alt="" keeps screen readers from announcing the filename.
+        img.alt = '';
+        img.loading = 'lazy';
+        img.width = 110;
+        img.height = 156;
         cover.appendChild(img);
       } else {
         cover.textContent = b.title;
@@ -101,20 +114,37 @@ function renderBooks(books) {
       size.textContent = `${b.sizeHuman}${convertedLabel}`;
       card.append(size);
 
-      card.addEventListener('click', () => {
+      const select = () => {
         selectedBookId = b.id;
         document.querySelectorAll('.book-card').forEach(c => c.classList.toggle('selected', c.dataset.id === b.id));
-      });
+      };
+
+      card.addEventListener('click', select);
 
       card.addEventListener('dblclick', (e) => {
         e.preventDefault();
         if (window.airshelfReader) window.airshelfReader.open(b);
       });
 
+      // Keyboard activation: Enter selects, Space selects (matching click);
+      // Enter when already selected opens the reader (mirrors dblclick).
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (b.id === selectedBookId && window.airshelfReader) {
+            window.airshelfReader.open(b);
+          } else {
+            select();
+          }
+        } else if (e.key === ' ') {
+          e.preventDefault();
+          select();
+        }
+      });
+
       card.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        selectedBookId = b.id;
-        document.querySelectorAll('.book-card').forEach(c => c.classList.toggle('selected', c.dataset.id === b.id));
+        select();
         window.airshelf.showContextMenu(b.id);
       });
 
