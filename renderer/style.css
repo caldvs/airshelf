@@ -1,4 +1,93 @@
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* ============================================================
+   Tokens
+   ------------------------------------------------------------
+   Spacing, radius, shadow, type, fonts, motion, z-index.
+   Color tokens live in the per-theme blocks below.
+   ============================================================ */
+
+:root {
+  /* Spacing (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 26px;
+
+  /* Type scale */
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-md: 12px;
+  --text-base: 13px;
+  --text-lg: 14px;
+  --text-xl: 16px;
+  --text-2xl: 22px;
+  --text-3xl: 24px;
+
+  /* Fonts. Native macOS stack — no Inter (generic AI default), no
+     bundled web fonts. ui-sans-serif maps to SF Pro on macOS. */
+  --font-body: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  --font-display: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Motion */
+  --duration-fast: 100ms;
+  --duration-base: 200ms;
+  --easing: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Z-index scale */
+  --z-tabbar: 900;
+  --z-reader: 950;
+  --z-busy: 999;
+  --z-toast: 1001;
+  --z-modal: 1002;
+
+  /* Shadow primitives. `--shadow-rgb` lets per-theme overrides shift the
+     base hue (e.g. pure black in dark mode) without rewriting every shadow. */
+  --shadow-rgb: 20, 30, 60;
+  --shadow-1: 0 1px 2px rgba(var(--shadow-rgb), 0.08);
+  --shadow-2: 0 4px 14px rgba(var(--shadow-rgb), 0.14);
+  --shadow-3: 0 12px 36px rgba(var(--shadow-rgb), 0.18), 0 24px 60px rgba(var(--shadow-rgb), 0.12);
+  --shadow-modal: 0 20px 60px rgba(var(--shadow-rgb), 0.35);
+  --shadow-toast: 0 10px 30px rgba(var(--shadow-rgb), 0.25);
+
+  /* Inset highlight (top-edge sheen on glass surfaces) */
+  --inset-line: rgba(255, 255, 255, 0.7);
+
+  /* Surface tokens defined per-theme. These are the LIGHT defaults. */
+  --overlay: rgba(15, 23, 42, 0.45);
+  --tabbar-bg: rgba(255, 255, 255, 0.14);
+  --tabbar-border: rgba(255, 255, 255, 0.55);
+  --tabbar-text: rgba(30, 41, 59, 0.72);
+  --tabbar-text-hover: rgba(15, 23, 42, 0.9);
+  --tabbar-active-bg: rgba(255, 255, 255, 0.65);
+  --tabbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0) 60%, rgba(255, 255, 255, 0.12) 100%);
+  --placeholder-grad: linear-gradient(135deg, var(--bg-elev), color-mix(in oklch, var(--accent-soft) 70%, var(--bg-elev)));
+  --help-text: color-mix(in oklch, var(--accent) 80%, var(--text));
+  --help-border: color-mix(in oklch, var(--accent) 30%, var(--border-strong));
+  --toast-bg: #1f2937;
+  --reader-border: rgba(0, 0, 0, 0.06);
+  --reader-btn-border: rgba(0, 0, 0, 0.08);
+  --reader-btn-hover-bg: rgba(0, 0, 0, 0.04);
+  --reader-zone-color: rgba(0, 0, 0, 0.4);
+  --reader-zone-hover-bg: rgba(0, 0, 0, 0.03);
+  --reader-progress-track: rgba(0, 0, 0, 0.1);
+  --scrollbar-thumb: rgba(var(--shadow-rgb), 0.2);
+
+  /* Focus ring (a11y — never `outline: none` without replacement) */
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+/* ============================================================
+   Color themes (user-selectable)
+   ============================================================ */
 
 :root,
 [data-theme="cloud"] {
@@ -41,6 +130,28 @@
   --accent-hover: #5a8fee;
   --accent-soft: rgba(109, 159, 255, 0.12);
   --ok: #4ade80;
+
+  /* Dark-mode surface overrides — reverses the light-mode glass + chrome. */
+  --shadow-rgb: 0, 0, 0;
+  --overlay: rgba(0, 0, 0, 0.55);
+  --inset-line: rgba(255, 255, 255, 0.06);
+  --tabbar-bg: rgba(40, 44, 53, 0.55);
+  --tabbar-border: rgba(255, 255, 255, 0.12);
+  --tabbar-text: rgba(228, 230, 234, 0.7);
+  --tabbar-text-hover: rgba(255, 255, 255, 0.95);
+  --tabbar-active-bg: rgba(60, 70, 90, 0.7);
+  --tabbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 60%);
+  --placeholder-grad: linear-gradient(135deg, #2d3340, #3a4150);
+  --help-text: var(--accent);
+  --help-border: rgba(109, 159, 255, 0.28);
+  --toast-bg: #2d3340;
+  --reader-border: rgba(255, 255, 255, 0.08);
+  --reader-btn-border: rgba(255, 255, 255, 0.1);
+  --reader-btn-hover-bg: rgba(255, 255, 255, 0.06);
+  --reader-zone-color: rgba(255, 255, 255, 0.4);
+  --reader-zone-hover-bg: rgba(255, 255, 255, 0.04);
+  --reader-progress-track: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
 }
 
 [data-theme="rose"] {
@@ -71,15 +182,99 @@
   --ok: #16a34a;
 }
 
+/* When the OS prefers dark and the user hasn't picked a theme yet, paint
+   slate from the first frame. Prevents the light→dark FOUC on launch. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #1a1d23;
+    --bg-elev: #22262e;
+    --panel: #282c35;
+    --border: #33383f;
+    --border-strong: #3e444d;
+    --text: #e4e6ea;
+    --text-sub: #8b919e;
+    --accent: #6d9fff;
+    --accent-hover: #5a8fee;
+    --accent-soft: rgba(109, 159, 255, 0.12);
+    --ok: #4ade80;
+    --shadow-rgb: 0, 0, 0;
+    --overlay: rgba(0, 0, 0, 0.55);
+    --inset-line: rgba(255, 255, 255, 0.06);
+    --tabbar-bg: rgba(40, 44, 53, 0.55);
+    --tabbar-border: rgba(255, 255, 255, 0.12);
+    --tabbar-text: rgba(228, 230, 234, 0.7);
+    --tabbar-text-hover: rgba(255, 255, 255, 0.95);
+    --tabbar-active-bg: rgba(60, 70, 90, 0.7);
+    --tabbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 60%);
+    --placeholder-grad: linear-gradient(135deg, #2d3340, #3a4150);
+    --help-text: var(--accent);
+    --help-border: rgba(109, 159, 255, 0.28);
+    --toast-bg: #2d3340;
+    --reader-border: rgba(255, 255, 255, 0.08);
+    --reader-btn-border: rgba(255, 255, 255, 0.1);
+    --reader-btn-hover-bg: rgba(255, 255, 255, 0.06);
+    --reader-zone-color: rgba(255, 255, 255, 0.4);
+    --reader-zone-hover-bg: rgba(255, 255, 255, 0.04);
+    --reader-progress-track: rgba(255, 255, 255, 0.1);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  }
+}
+
+/* Honor user motion preference. Doesn't kill animation entirely — keeps
+   instantaneous transitions so state changes still register, just without
+   the showy movement. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .spinner {
+    animation: none !important;
+  }
+
+  .nav-item:active,
+  .pill-btn:active,
+  .book-card:hover,
+  .theme-swatch:active,
+  .modal-btn:active {
+    transform: none !important;
+  }
+
+  .header-add:active {
+    transform: translateY(-50%) !important;
+  }
+
+  .reader-toc {
+    transition: none !important;
+  }
+}
+
+/* ============================================================
+   Reset + base
+   ============================================================ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
 html, body { height: 100%; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
-  font-size: 13px;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
   color: var(--text);
   background: var(--bg);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus visible everywhere — reset `outline: 0` removals are
+   replaced with a high-contrast ring that respects the active accent. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
 }
 
 .app {
@@ -88,18 +283,18 @@ body {
   height: 100vh;
 }
 
-/* ---------- Topbar ---------- */
+/* ============================================================
+   Topbar
+   ============================================================ */
 
 .topbar {
   position: relative;
   background: var(--bg-elev);
   -webkit-app-region: drag;
-  height: 48px;
+  height: var(--space-7);
 }
 
-.topbar-drag {
-  display: none;
-}
+.topbar-drag { display: none; }
 
 .topbar-inner {
   position: absolute;
@@ -109,24 +304,18 @@ body {
   justify-content: flex-end;
 }
 
-.wordmark {
-  font-family: "Caveat Brush", "Didot", "Bodoni 72", Georgia, serif;
-  font-size: 34px;
-  font-weight: 400;
-  font-style: normal;
-  letter-spacing: 0.5px;
-  line-height: 1;
-  color: var(--text);
-  user-select: none;
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-2);
+  -webkit-app-region: no-drag;
 }
 
-/* ---------- Bottom glass tab bar ---------- */
+/* ============================================================
+   Bottom glass tab bar
+   ============================================================ */
 
-/* ---------- Bottom fade behind tab bar ---------- */
-
-.content {
-  position: relative;
-}
+.content { position: relative; }
 
 .content::after {
   content: "";
@@ -141,7 +330,7 @@ body {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 50%);
   background: linear-gradient(to bottom, transparent 0%, var(--bg) 70%);
   pointer-events: none;
-  z-index: 899;
+  z-index: calc(var(--z-tabbar) - 1);
 }
 
 .tabbar {
@@ -149,7 +338,7 @@ body {
   left: 50%;
   bottom: 18px;
   transform: translateX(-50%);
-  z-index: 900;
+  z-index: var(--z-tabbar);
   -webkit-app-region: no-drag;
   pointer-events: none;
 }
@@ -159,29 +348,26 @@ body {
   position: relative;
   display: flex;
   gap: 2px;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.14);
-  border: 0.5px solid rgba(255, 255, 255, 0.55);
-  border-radius: 26px;
+  padding: var(--space-2);
+  background: var(--tabbar-bg);
+  border: 0.5px solid var(--tabbar-border);
+  border-radius: var(--radius-pill);
   backdrop-filter: saturate(200%) blur(40px);
   -webkit-backdrop-filter: saturate(200%) blur(40px);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.7) inset,
-    0 0 0 0.5px rgba(20, 30, 60, 0.08),
-    0 1px 2px rgba(20, 30, 60, 0.06),
-    0 12px 36px rgba(20, 30, 60, 0.18),
-    0 24px 60px rgba(20, 30, 60, 0.12);
+    0 1px 0 var(--inset-line) inset,
+    0 0 0 0.5px rgba(var(--shadow-rgb), 0.08),
+    var(--shadow-1),
+    var(--shadow-3);
 }
 
-/* Liquid-glass highlight sheen */
 .tabbar-inner::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0) 60%, rgba(255, 255, 255, 0.12) 100%);
+  background: var(--tabbar-sheen);
   mix-blend-mode: overlay;
 }
 
@@ -189,11 +375,11 @@ body {
   position: relative;
   background: transparent;
   border: none;
-  color: rgba(30, 41, 59, 0.72);
+  color: var(--tabbar-text);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
-  padding: 9px 16px 7px;
+  padding: 9px var(--space-4) 7px;
   border-radius: 20px;
   cursor: pointer;
   letter-spacing: 0.1px;
@@ -202,24 +388,20 @@ body {
   align-items: center;
   gap: 3px;
   min-width: 72px;
-  transition: color 0.2s, transform 0.1s;
+  transition: color var(--duration-base), transform var(--duration-fast);
   z-index: 1;
 }
 
-.nav-item svg {
-  stroke-width: 1.8;
-  opacity: 0.9;
-}
-
-.nav-item:hover { color: rgba(15, 23, 42, 0.9); }
+.nav-item svg { stroke-width: 1.8; opacity: 0.9; }
+.nav-item:hover { color: var(--tabbar-text-hover); }
 
 .nav-item.active {
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--tabbar-active-bg);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 0 0 0.5px rgba(37, 99, 235, 0.15),
-    0 4px 10px rgba(20, 30, 60, 0.08);
+    0 1px 0 var(--inset-line) inset,
+    0 0 0 0.5px color-mix(in oklch, var(--accent) 15%, transparent),
+    0 4px 10px rgba(var(--shadow-rgb), 0.08);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -227,30 +409,27 @@ body {
 .nav-item.active svg { opacity: 1; }
 .nav-item:active { transform: scale(0.96); }
 
-.topbar-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  -webkit-app-region: no-drag;
-}
+/* ============================================================
+   Buttons (pill, header-add)
+   ============================================================ */
 
 .pill-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   background: var(--panel);
   border: 1px solid var(--border-strong);
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
-  padding: 7px 12px;
-  border-radius: 8px;
+  padding: 7px var(--space-3);
+  border-radius: var(--space-2);
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s, transform 0.05s;
+  transition: background var(--duration-fast), border-color var(--duration-fast), transform 0.05s;
 }
 
-.pill-btn:hover { background: #fffaf0; border-color: var(--accent); }
+.pill-btn:hover { background: color-mix(in oklch, var(--accent-soft) 30%, var(--panel)); border-color: var(--accent); }
 .pill-btn:active { transform: translateY(1px); }
 
 .pill-btn.primary {
@@ -260,7 +439,32 @@ body {
 }
 .pill-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
-/* ---------- Content ---------- */
+.header-add {
+  position: absolute;
+  right: var(--space-4);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  box-shadow: var(--shadow-1), 0 4px 10px color-mix(in oklch, var(--accent) 25%, transparent);
+  transition: background var(--duration-fast), transform 80ms;
+}
+
+.header-add:hover { background: var(--accent-hover); }
+.header-add:active { transform: translateY(-50%) scale(0.94); }
+
+/* ============================================================
+   Content + views
+   ============================================================ */
 
 .content {
   flex: 1;
@@ -279,29 +483,32 @@ body {
 .view.hidden { display: none; }
 
 .view-intro {
-  padding: 16px 32px 4px;
+  padding: var(--space-4) var(--space-6) var(--space-1);
 }
 
 .view-intro h1 {
-  font-size: 22px;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
   font-weight: 700;
   letter-spacing: -0.3px;
 }
 
 .view-intro .subtitle {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-sub);
   margin-top: 3px;
 }
 
-/* ---------- Bookshelf ---------- */
+/* ============================================================
+   Bookshelf
+   ============================================================ */
 
 .shelf {
   flex: 1;
-  padding: 0 32px 180px;
+  padding: 0 var(--space-6) 180px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 20px 16px;
+  gap: 20px var(--space-4);
   align-content: start;
   overflow-y: auto;
 }
@@ -312,7 +519,8 @@ body {
 }
 
 .shelf-intro h1 {
-  font-size: 22px;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
   font-weight: 700;
   letter-spacing: -0.3px;
 }
@@ -325,46 +533,21 @@ body {
   user-select: none;
   position: relative;
   padding: 6px 6px 10px;
-  border-radius: 6px;
-  transition: transform 0.12s ease;
+  border-radius: var(--radius-sm);
+  transition: transform 120ms ease;
 }
 
 .book-card:hover { transform: translateY(-3px); }
 
-/* ---------- Header add button ---------- */
-
-.header-add {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: none;
-  background: var(--accent);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-  box-shadow: 0 1px 2px rgba(20, 30, 60, 0.1), 0 4px 10px rgba(37, 99, 235, 0.25);
-  transition: background 0.12s, transform 0.08s;
-}
-
-.header-add:hover { background: var(--accent-hover); }
-.header-add:active { transform: translateY(-50%) scale(0.94); }
-
 .book-card.selected .book-cover {
-  box-shadow: 0 0 0 2px var(--accent), 0 6px 14px rgba(20, 30, 60, 0.22);
+  box-shadow: 0 0 0 2px var(--accent), 0 6px 14px rgba(var(--shadow-rgb), 0.22);
 }
 
 .book-cover {
   width: 110px;
   height: 156px;
   border-radius: 4px;
-  box-shadow: 0 4px 14px rgba(20, 30, 60, 0.14);
+  box-shadow: var(--shadow-2);
   background: transparent;
   overflow: hidden;
   display: flex;
@@ -373,26 +556,18 @@ body {
   text-align: center;
   padding: 0;
   font-weight: 600;
-  font-size: 12px;
-  color: #333;
+  font-size: var(--text-md);
+  color: var(--text);
   line-height: 1.3;
 }
 
-.book-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+.book-cover img { width: 100%; height: 100%; object-fit: cover; }
 
-.book-cover.placeholder {
-  background: linear-gradient(135deg, #eef2ff 0%, #dbe5ff 100%);
-}
-
-/* ---------- Book card text ---------- */
+.book-cover.placeholder { background: var(--placeholder-grad); }
 
 .book-title {
-  margin-top: 10px;
-  font-size: 12px;
+  margin-top: var(--space-3);
+  font-size: var(--text-md);
   font-weight: 600;
   text-align: center;
   max-width: 140px;
@@ -405,7 +580,7 @@ body {
 
 .book-author {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-sub);
   text-align: center;
@@ -416,7 +591,7 @@ body {
 }
 
 .book-size {
-  font-size: 10px;
+  font-size: var(--text-xs);
   color: var(--text-sub);
   opacity: 0.75;
   margin-top: 3px;
@@ -433,7 +608,7 @@ body {
   background: var(--accent);
   color: #fff;
   border: 2px solid var(--bg);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1;
   cursor: pointer;
   display: none;
@@ -448,13 +623,13 @@ body {
 .drop-hint {
   display: none;
   position: absolute;
-  inset: 80px 16px 16px 16px;
-  background: rgba(37, 99, 235, 0.06);
+  inset: 80px var(--space-4) var(--space-4) var(--space-4);
+  background: color-mix(in oklch, var(--accent) 6%, transparent);
   border: 2px dashed var(--accent);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: var(--text-xl);
   font-weight: 600;
   color: var(--accent);
   pointer-events: none;
@@ -467,13 +642,15 @@ body {
   text-align: center;
   color: var(--text-sub);
   padding: 60px 20px;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
-/* ---------- Transfer view ---------- */
+/* ============================================================
+   Transfer view
+   ============================================================ */
 
 .transfer-body {
-  padding: 32px 48px 120px;
+  padding: var(--space-6) var(--space-7) 120px;
   overflow-y: auto;
   max-width: 760px;
   width: 100%;
@@ -483,15 +660,15 @@ body {
 .transfer-card {
   background: var(--panel);
   border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  padding: 28px 32px 24px;
+  border-radius: var(--radius-lg);
+  padding: 28px var(--space-6) var(--space-5);
   text-align: center;
   margin-bottom: 28px;
-  box-shadow: 0 1px 2px rgba(20, 30, 60, 0.04);
+  box-shadow: var(--shadow-1);
 }
 
 .transfer-eyebrow {
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 1.4px;
   text-transform: uppercase;
@@ -500,7 +677,8 @@ body {
 }
 
 .big-title {
-  font-size: 24px;
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
   font-weight: 700;
   margin-bottom: 6px;
   letter-spacing: -0.4px;
@@ -508,17 +686,17 @@ body {
 
 .center-sub {
   color: var(--text-sub);
-  font-size: 13px;
+  font-size: var(--text-base);
   margin-bottom: 22px;
 }
 
 .url-pill {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   background: var(--bg);
   border: 1px dashed var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 14px 18px;
 }
 
@@ -528,13 +706,13 @@ body {
   border-radius: 50%;
   background: var(--ok);
   flex-shrink: 0;
-  box-shadow: 0 0 0 3px rgba(47, 125, 79, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ok) 18%, transparent);
 }
 
 .url-pill code {
   flex: 1;
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 16px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
   color: var(--text);
   text-align: left;
 }
@@ -544,7 +722,7 @@ body {
   border: none;
   color: var(--accent);
   cursor: pointer;
-  padding: 4px;
+  padding: var(--space-1);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -562,11 +740,11 @@ body {
 
 .step {
   display: flex;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: flex-start;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 14px 18px;
 }
 
@@ -584,39 +762,42 @@ body {
 }
 
 .step-title {
-  font-size: 14px;
+  font-size: var(--text-lg);
   font-weight: 700;
   margin-bottom: 2px;
 }
 
 .step-sub {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-sub);
 }
 
 .help-box {
   background: var(--accent-soft);
-  border: 1px solid #c8dbff;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font-size: 12px;
-  color: #1e3a8a;
+  border: 1px solid var(--help-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-md);
+  color: var(--help-text);
   display: flex;
   gap: 6px;
   align-items: baseline;
 }
 
-/* ---------- Settings ---------- */
+/* ============================================================
+   Settings
+   ============================================================ */
 
 .settings-body {
-  padding: 24px 32px 120px;
+  padding: var(--space-5) var(--space-6) 120px;
   max-width: 680px;
   width: 100%;
   margin: 0 auto;
 }
 
 .settings-title {
-  font-size: 22px;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
   font-weight: 700;
   margin-bottom: 18px;
   letter-spacing: -0.3px;
@@ -629,13 +810,13 @@ body {
   padding: 14px 18px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   margin-bottom: 10px;
-  font-size: 14px;
+  font-size: var(--text-lg);
 }
 
 .setting-section-label {
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -659,10 +840,10 @@ body {
   padding: 10px 14px 8px;
   background: var(--panel);
   border: 2px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   font-family: inherit;
-  transition: border-color 0.15s, transform 0.1s;
+  transition: border-color 150ms, transform 100ms;
 }
 
 .theme-swatch:hover { border-color: var(--text-sub); }
@@ -673,7 +854,7 @@ body {
   display: block;
   width: 40px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid;
   position: relative;
 }
@@ -687,85 +868,94 @@ body {
 }
 
 .swatch-name {
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-sub);
 }
 
 .setting-label { font-weight: 600; }
-.setting-value { color: var(--text-sub); font-family: "SF Mono", Menlo, monospace; }
+.setting-value { color: var(--text-sub); font-family: var(--font-mono); }
 
-/* ---------- Toast ---------- */
+/* ============================================================
+   Toast
+   ============================================================ */
+
 .toast {
   position: fixed;
   left: 50%;
   bottom: 112px;
   transform: translateX(-50%) translateY(20px);
-  background: #1f2937;
+  background: var(--toast-bg);
   color: #ffffff;
   padding: 10px 18px;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--space-2);
+  font-size: var(--text-base);
   font-weight: 500;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s, transform 0.2s;
-  z-index: 1000;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  transition: opacity var(--duration-base), transform var(--duration-base);
+  z-index: var(--z-toast);
+  box-shadow: var(--shadow-toast);
   max-width: 420px;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.toast { z-index: 1001; }
 .toast.success { background: var(--accent); }
 .toast.warn    { background: #b76b00; }
 .toast.error   { background: #a62a1d; }
 
-/* ---------- URL modal ---------- */
+/* ============================================================
+   URL modal
+   ============================================================ */
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+  background: var(--overlay);
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 1002;
+  z-index: var(--z-modal);
 }
 .modal-backdrop.active { display: flex; }
+
 .modal-box {
   background: var(--bg-elev);
   color: var(--text);
-  padding: 22px 24px 18px;
-  border-radius: 14px;
+  padding: 22px var(--space-5) 18px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  box-shadow: var(--shadow-modal);
   min-width: 420px;
   max-width: 90vw;
 }
-.modal-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-.modal-sub   { font-size: 12px; opacity: 0.7; margin-bottom: 14px; }
+.modal-title { font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-1); }
+.modal-sub   { font-size: var(--text-md); opacity: 0.7; margin-bottom: 14px; }
+
 .modal-box input[type="url"] {
   width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 10px var(--space-3);
+  border-radius: var(--space-2);
   border: 1px solid var(--border-strong);
   background: var(--bg);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-base);
   box-sizing: border-box;
   outline: none;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
 }
-.modal-box input[type="url"]:focus { border-color: var(--accent); }
+.modal-box input[type="url"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 25%, transparent); }
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 14px;
 }
 .modal-btn {
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: var(--space-2) 14px;
+  border-radius: var(--space-2);
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 500;
   cursor: pointer;
 }
@@ -773,80 +963,93 @@ body {
 .modal-btn-primary { background: var(--accent); color: #fff; }
 .modal-btn:active { transform: translateY(1px); }
 
-/* ---------- Busy overlay ---------- */
+/* ============================================================
+   Busy overlay
+   ============================================================ */
+
 .busy {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
+  background: var(--overlay);
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 999;
+  z-index: var(--z-busy);
 }
 .busy.active { display: flex; }
+
 .busy-box {
   background: var(--bg-elev);
   padding: 22px 30px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong);
-  box-shadow: 0 16px 40px rgba(0,0,0,0.25);
+  box-shadow: var(--shadow-modal);
   display: flex;
   align-items: center;
   gap: 14px;
-  font-size: 14px;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
+
 .spinner {
   width: 22px;
   height: 22px;
-  border: 3px solid rgba(37, 99, 235, 0.2);
+  border: 3px solid color-mix(in oklch, var(--accent) 20%, transparent);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* scrollbars */
+/* ============================================================
+   Scrollbars
+   ============================================================ */
+
 .shelf::-webkit-scrollbar,
 .transfer-body::-webkit-scrollbar { width: 8px; }
 .shelf::-webkit-scrollbar-thumb,
-.transfer-body::-webkit-scrollbar-thumb { background: rgba(20, 30, 60, 0.2); border-radius: 4px; }
+.transfer-body::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
 
-/* ---------- Reader ---------- */
+/* ============================================================
+   Reader
+   ============================================================ */
+
 .reader {
   position: fixed;
   inset: 0;
-  background: var(--bg, #f7f8fa);
-  z-index: 950;
+  background: var(--bg);
+  z-index: var(--z-reader);
   display: none;
   flex-direction: column;
   color: var(--text);
 }
 .reader.active { display: flex; }
+
 .reader-bar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
-  background: var(--surface, #fff);
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  padding: 10px var(--space-4);
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--reader-border);
   -webkit-app-region: drag;
 }
 .reader-bar-bottom {
   border-bottom: none;
-  border-top: 1px solid rgba(0,0,0,0.06);
+  border-top: 1px solid var(--reader-border);
   justify-content: center;
 }
+
 .reader-btn {
   -webkit-app-region: no-drag;
   background: transparent;
-  border: 1px solid rgba(0,0,0,0.08);
+  border: 1px solid var(--reader-btn-border);
   color: var(--text);
-  border-radius: 8px;
+  border-radius: var(--space-2);
   padding: 6px 10px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -855,8 +1058,10 @@ body {
   gap: 6px;
   height: 32px;
   min-width: 32px;
+  transition: background var(--duration-fast);
 }
-.reader-btn:hover { background: rgba(0,0,0,0.04); }
+.reader-btn:hover { background: var(--reader-btn-hover-bg); }
+
 .reader-title-wrap {
   flex: 1 1 auto;
   min-width: 0;
@@ -864,19 +1069,20 @@ body {
   -webkit-app-region: no-drag;
 }
 .reader-title {
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .reader-author {
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--text-sub);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .reader-controls {
   display: flex;
   align-items: center;
@@ -890,7 +1096,7 @@ body {
   align-items: stretch;
   min-height: 0;
   position: relative;
-  background: var(--surface, #fff);
+  background: var(--bg-elev);
 }
 .reader-viewport {
   flex: 1 1 auto;
@@ -898,16 +1104,17 @@ body {
   position: relative;
 }
 .reader-viewport iframe { border: 0; }
+
 .reader-zone {
   flex: 0 0 auto;
   width: 64px;
   background: transparent;
   border: 0;
   cursor: pointer;
-  color: rgba(0,0,0,0.15);
+  color: var(--reader-zone-color);
   font-size: 0;
 }
-.reader-zone:hover { background: rgba(0,0,0,0.03); }
+.reader-zone:hover { background: var(--reader-zone-hover-bg); }
 .reader-zone-left::before,
 .reader-zone-right::before {
   content: '';
@@ -924,7 +1131,7 @@ body {
 .reader-progress-wrap {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   width: 100%;
   max-width: 760px;
   -webkit-app-region: no-drag;
@@ -934,7 +1141,7 @@ body {
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
-  background: rgba(0,0,0,0.1);
+  background: var(--reader-progress-track);
   border-radius: 2px;
   outline: none;
 }
@@ -943,12 +1150,17 @@ body {
   appearance: none;
   width: 14px;
   height: 14px;
-  background: var(--accent, #2563eb);
+  background: var(--accent);
   border-radius: 50%;
   cursor: pointer;
+  transition: box-shadow var(--duration-fast);
 }
+.reader-progress:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 35%, transparent);
+}
+
 .reader-pos {
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--text-sub);
   min-width: 80px;
   text-align: right;
@@ -962,48 +1174,37 @@ body {
   bottom: 0;
   width: 320px;
   max-width: 80vw;
-  background: var(--surface, #fff);
-  border-left: 1px solid rgba(0,0,0,0.08);
-  box-shadow: -10px 0 30px rgba(0,0,0,0.08);
+  background: var(--bg-elev);
+  border-left: 1px solid var(--reader-btn-border);
+  box-shadow: -10px 0 30px rgba(var(--shadow-rgb), 0.08);
   transform: translateX(100%);
-  transition: transform 200ms ease;
+  transition: transform var(--duration-base) var(--easing);
   overflow-y: auto;
   z-index: 5;
 }
 .reader-toc.open { transform: translateX(0); }
+
 .reader-toc-head {
-  font-size: 12px;
+  font-size: var(--text-md);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-sub);
-  padding: 14px 16px 8px;
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  padding: 14px var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--reader-border);
 }
-.reader-toc-list {
-  list-style: none;
-  padding: 6px 0;
-  margin: 0;
-}
-.reader-toc-list li {
-  padding: 0;
-}
+.reader-toc-list { list-style: none; padding: 6px 0; margin: 0; }
+.reader-toc-list li { padding: 0; }
 .reader-toc-list a {
   display: block;
-  padding: 8px 16px;
-  font-size: 13px;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-base);
   color: var(--text);
   text-decoration: none;
   cursor: pointer;
   border-left: 2px solid transparent;
+  transition: background var(--duration-fast), border-left-color var(--duration-fast);
 }
-.reader-toc-list a:hover { background: rgba(0,0,0,0.04); border-left-color: var(--accent, #2563eb); }
-.reader-toc-list .toc-depth-1 { padding-left: 28px; font-size: 12px; color: var(--text-sub); }
-.reader-toc-list .toc-depth-2 { padding-left: 40px; font-size: 12px; color: var(--text-sub); }
-
-[data-theme="slate"] .reader { background: #1a1d23; }
-[data-theme="slate"] .reader-bar,
-[data-theme="slate"] .reader-stage,
-[data-theme="slate"] .reader-toc { background: #232830; }
-[data-theme="slate"] .reader-btn { border-color: rgba(255,255,255,0.1); }
-[data-theme="slate"] .reader-btn:hover { background: rgba(255,255,255,0.06); }
+.reader-toc-list a:hover { background: var(--reader-btn-hover-bg); border-left-color: var(--accent); }
+.reader-toc-list .toc-depth-1 { padding-left: 28px; font-size: var(--text-md); color: var(--text-sub); }
+.reader-toc-list .toc-depth-2 { padding-left: 40px; font-size: var(--text-md); color: var(--text-sub); }

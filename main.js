@@ -103,17 +103,32 @@ function extractCoverViaCalibre(filePath, outPath) {
 
 // Downsize a cover image in place using macOS sips (or ignore if unavailable).
 // Kindle browser renders large JPEGs slowly line-by-line, so we keep them small.
+//
+// Atomic: sips writes to a sibling .tmp path, then we rename over the original.
+// Previously the source and destination were the same path; sips supports that,
+// but a crash mid-write would have corrupted the cover with no backup.
 function resizeCoverInPlace(filePath, maxDim = 500) {
   return new Promise((resolve) => {
     if (process.platform !== 'darwin') return resolve(false);
-    // Skip if already small
     try {
       const size = fs.statSync(filePath).size;
       if (size < 60 * 1024) return resolve(false); // already small
     } catch { return resolve(false); }
 
-    execFile('/usr/bin/sips', ['-Z', String(maxDim), '-s', 'format', 'jpeg', '-s', 'formatOptions', '80', filePath, '--out', filePath], { timeout: 30000 }, (err) => {
-      resolve(!err);
+    const tmp = `${filePath}.resize.tmp`;
+    execFile('/usr/bin/sips', ['-Z', String(maxDim), '-s', 'format', 'jpeg', '-s', 'formatOptions', '80', filePath, '--out', tmp], { timeout: 30000 }, (err) => {
+      if (err) {
+        try { fs.unlinkSync(tmp); } catch {}
+        return resolve(false);
+      }
+      try {
+        fs.renameSync(tmp, filePath);
+        resolve(true);
+      } catch (renameErr) {
+        try { fs.unlinkSync(tmp); } catch {}
+        console.warn('resizeCoverInPlace: rename failed', renameErr.message);
+        resolve(false);
+      }
     });
   });
 }
@@ -206,19 +221,46 @@ async function getOrBuildReaderEpub(book) {
   return p;
 }
 
+const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
+const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const authLimiter = new FailedAuthLimiter();
+
 let mainWindow = null;
 let server = null;
 let booksDir = null;
 let metaFile = null;
+let serverToken = null;
 
 // ---------- Book storage ----------
 
 function loadMeta() {
+  let raw;
   try {
-    return JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+    raw = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
   } catch {
     return { books: [] };
   }
+  if (!raw || !Array.isArray(raw.books)) return { books: [] };
+  // Defense in depth: every metadata field that gets joined with booksDir
+  // and served over HTTP must be a single path component. A tampered
+  // books.json with `book.file = "../../etc/passwd"` would otherwise leak
+  // arbitrary disk contents through /download or /epub.
+  const books = raw.books.filter(b => {
+    if (!b || !isSafeBasename(b.file)) {
+      console.warn('books.json: dropping entry with unsafe `file`:', b && b.file);
+      return false;
+    }
+    if (b.originalFile != null && !isSafeBasename(b.originalFile)) {
+      console.warn('books.json: dropping entry with unsafe `originalFile`:', b.originalFile);
+      return false;
+    }
+    if (b.cover != null && !isSafeBasename(b.cover)) {
+      console.warn('books.json: dropping entry with unsafe `cover`:', b.cover);
+      return false;
+    }
+    return true;
+  });
+  return { ...raw, books };
 }
 
 function saveMeta(meta) {
@@ -893,11 +935,11 @@ function renderScreenshotHtml() {
   const books = listBooks().slice(0, 8);
   const rendered = books.map(b => {
     const coverMarkup = b.cover
-      ? `<img src="/cover/${b.id}" alt="">`
+      ? `<img src="/${serverToken}/cover/${b.id}" alt="">`
       : `<div class="book-cover placeholder" style="font-size:11px;">${escapeHtml(b.title.slice(0, 30))}</div>`;
     return `
       <div class="book-card">
-        <div class="book-cover">${b.cover ? `<img src="/cover/${b.id}" alt="">` : escapeHtml(b.title.slice(0, 24))}</div>
+        <div class="book-cover">${b.cover ? `<img src="/${serverToken}/cover/${b.id}" alt="">` : escapeHtml(b.title.slice(0, 24))}</div>
         <div class="book-title">${escapeHtml(b.title)}</div>
         <div class="book-size">${b.ext.toUpperCase()} &middot; ${humanSize(b.size)}</div>
       </div>
@@ -972,7 +1014,7 @@ function renderIndexHtml() {
       <tr>
         <td class="cover-cell" valign="middle" width="190">
           ${b.cover
-            ? `<div class="cover-frame" style="background-image:url('/cover/${b.id}')"></div>`
+            ? `<div class="cover-frame" style="background-image:url('/${serverToken}/cover/${b.id}')"></div>`
             : `<div class="cover-frame cover-fallback">${escapeHtml(b.title.slice(0, 40))}</div>`}
         </td>
         <td class="info-cell" valign="middle">
@@ -981,7 +1023,7 @@ function renderIndexHtml() {
           <div class="meta">AZW3 &middot; ${humanSize(b.size)}</div>
         </td>
         <td class="btn-cell" valign="middle" align="right">
-          <a class="dl-btn" href="/download/${b.id}">Download</a>
+          <a class="dl-btn" href="/${serverToken}/download/${b.id}">Download</a>
         </td>
       </tr>
       <tr><td colspan="3" class="spacer"></td></tr>
@@ -1104,10 +1146,41 @@ function renderIndexHtml() {
 
 function startServer() {
   if (server) return;
+
+  function pipeStreamToResponse(stream, req, res) {
+    req.on('close', () => stream.destroy());
+    stream.on('error', (e) => {
+      console.error('[server] stream failed', req.method, req.url, '\n', e);
+      if (res.writableEnded || res.destroyed) return;
+      if (res.headersSent) {
+        res.destroy(e);
+        return;
+      }
+      res.writeHead(500);
+      res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
+    });
+    stream.pipe(res);
+  }
+
   server = http.createServer(async (req, res) => {
+    const ip = req.socket.remoteAddress || 'unknown';
     try {
+      // Per-IP rate limit: with a 6-char token (~20 bits), throttling is what
+      // keeps brute-force impractical. Block returns 404 (stealth) not 429.
+      if (authLimiter.isBlocked(ip)) {
+        res.writeHead(404); res.end('Not found'); return;
+      }
       const url = new URL(req.url, `http://${req.headers.host}`);
-      if (url.pathname === '/screenshot') {
+      // Require /<6-lowercase-token>/... on every request. Without it, 404
+      // (not 401) so the server is indistinguishable from no server at all.
+      const tokMatch = url.pathname.match(/^\/([a-z]{6})(\/.*)?$/);
+      if (!tokMatch || !tokensMatch(tokMatch[1], serverToken)) {
+        authLimiter.recordFail(ip);
+        res.writeHead(404); res.end('Not found'); return;
+      }
+      authLimiter.recordSuccess(ip);
+      const subPath = tokMatch[2] || '/';
+      if (subPath === '/screenshot') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store',
@@ -1115,7 +1188,7 @@ function startServer() {
         res.end(renderScreenshotHtml());
         return;
       }
-      if (url.pathname === '/' || url.pathname === '/index.html') {
+      if (subPath === '/' || subPath === '/index.html') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
@@ -1125,7 +1198,7 @@ function startServer() {
         res.end(renderIndexHtml());
         return;
       }
-      const coverMatch = url.pathname.match(/^\/cover\/([a-f0-9]+)$/);
+      const coverMatch = subPath.match(/^\/cover\/([a-f0-9]+)$/);
       if (coverMatch) {
         const id = coverMatch[1];
         const book = listBooks().find(b => b.id === id);
@@ -1167,7 +1240,7 @@ function startServer() {
       // PW3's experimental browser pre-checks URL extensions against a
       // whitelist; by omitting the extension entirely, we bypass that check
       // and let Content-Disposition set the filename instead.
-      const dlMatch = url.pathname.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/);
+      const dlMatch = subPath.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/);
       if (dlMatch) {
         const id = dlMatch[1];
         const book = listBooks().find(b => b.id === id);
@@ -1186,13 +1259,20 @@ function startServer() {
           'Content-Length': stat.size,
           'Content-Disposition': `attachment; filename="${downloadName}"`,
         });
-        fs.createReadStream(filePath).pipe(res);
+        const dlStream = fs.createReadStream(filePath);
+        // Kindle aborts mid-download more than you'd expect (sleep, network
+        // flap). Without this, the read stream keeps pumping until EOF —
+        // wasting CPU and holding an FD until GC.
+        pipeStreamToResponse(dlStream, req, res);
         return;
       }
       // Streams the original .epub for the in-app reader (epubjs needs the
-      // raw zip with proper MIME). Loopback-only — bound to 0.0.0.0 already
-      // for the Kindle, but Range support keeps epubjs happy on big books.
-      const epubMatch = url.pathname.match(/^\/epub\/([a-f0-9]+)$/);
+      // raw zip with proper MIME). The reader fetches via loopback, but the
+      // route is reachable from LAN with the token like every other route —
+      // CORS is set to 'null' (matches file:// origin) and Range support
+      // keeps epubjs happy on big books. To restrict to loopback, check
+      // req.socket.remoteAddress for 127.0.0.1 / ::1 / ::ffff:127.0.0.1.
+      const epubMatch = subPath.match(/^\/epub\/([a-f0-9]+)$/);
       if (epubMatch) {
         const id = epubMatch[1];
         const book = listBooks().find(b => b.id === id);
@@ -1201,12 +1281,12 @@ function startServer() {
         try {
           epubPath = await getOrBuildReaderEpub(book);
         } catch (e) {
-          res.writeHead(500, { 'Access-Control-Allow-Origin': '*' });
+          res.writeHead(500, { 'Access-Control-Allow-Origin': 'null' });
           res.end(`Build failed: ${e.message}`);
           return;
         }
         if (!epubPath || !fs.existsSync(epubPath)) {
-          res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
+          res.writeHead(404, { 'Access-Control-Allow-Origin': 'null' });
           res.end('Missing'); return;
         }
         const stat = fs.statSync(epubPath);
@@ -1215,29 +1295,49 @@ function startServer() {
           'Content-Type': 'application/epub+zip',
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'private, max-age=3600',
-          // The reader iframe loads from file:// — allow it to fetch the epub.
-          'Access-Control-Allow-Origin': '*',
+          // The reader iframe loads from file:// (Origin: null). 'null'
+          // matches that without opening to arbitrary websites the way '*' did.
+          'Access-Control-Allow-Origin': 'null',
         };
         if (range) {
           const m = /bytes=(\d+)-(\d*)/.exec(range);
           if (m) {
             const start = parseInt(m[1], 10);
-            const end = m[2] ? parseInt(m[2], 10) : stat.size - 1;
+            const requestedEnd = m[2] ? parseInt(m[2], 10) : stat.size - 1;
+            // Reject ranges past EOF or backwards. Spec-compliant 416 with
+            // Content-Range: bytes */<size>.
+            if (start >= stat.size || requestedEnd < start) {
+              res.writeHead(416, {
+                'Content-Range': `bytes */${stat.size}`,
+                'Access-Control-Allow-Origin': 'null',
+              });
+              res.end();
+              return;
+            }
+            const end = Math.min(requestedEnd, stat.size - 1);
             headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
             headers['Content-Length'] = end - start + 1;
             res.writeHead(206, headers);
-            fs.createReadStream(epubPath, { start, end }).pipe(res);
+            const rangeStream = fs.createReadStream(epubPath, { start, end });
+            pipeStreamToResponse(rangeStream, req, res);
             return;
           }
         }
         headers['Content-Length'] = stat.size;
         res.writeHead(200, headers);
-        fs.createReadStream(epubPath).pipe(res);
+        const epubStream = fs.createReadStream(epubPath);
+        pipeStreamToResponse(epubStream, req, res);
         return;
       }
       res.writeHead(404); res.end('Not found');
     } catch (e) {
-      res.writeHead(500); res.end('Error');
+      // Server-level catch was returning a generic "Error" body with no log
+      // — debugging download failures was blind. Log the stack to the main-
+      // process console and surface the message to the client (only in
+      // non-production; production builds shouldn't leak internals).
+      console.error('[server] request failed', req.method, req.url, '\n', e);
+      res.writeHead(500);
+      res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
     }
   });
   server.listen(PORT, '0.0.0.0');
@@ -1269,6 +1369,7 @@ app.whenReady().then(() => {
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
+  serverToken = loadOrCreateServerToken(userData);
 
   startServer();
   createWindow();
@@ -1345,15 +1446,28 @@ async function addManyBooks(paths) {
 ipcMain.handle('books:delete', (_e, id) => deleteBook(id));
 
 ipcMain.handle('server:info', () => {
+  const ip = getLocalIP();
   return {
-    ip: getLocalIP(),
+    ip,
     port: PORT,
-    url: `http://${getLocalIP()}:${PORT}`,
+    token: serverToken,
+    url: `http://${ip}:${PORT}/${serverToken}/`,
     running: !!server,
   };
 });
 
-ipcMain.handle('open:external', (_e, url) => shell.openExternal(url));
+ipcMain.handle('open:external', async (_e, url) => {
+  if (!isSafeExternalScheme(url)) {
+    console.warn('open:external: refusing non-http(s) URL:', url);
+    return { ok: false, error: 'Only http(s) URLs are allowed.' };
+  }
+  try {
+    await shell.openExternal(url);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 // Write a new cover for an existing book from an in-memory buffer. Shared
 // by the "set cover from URL" and "choose cover image" flows. Resizes,
@@ -1384,11 +1498,9 @@ async function setBookCoverFromBuffer(bookId, buf) {
 
 ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
   if (!url || typeof url !== 'string') return { error: 'No URL provided.' };
-  let parsed;
-  try { parsed = new URL(url); } catch { return { error: 'Invalid URL.' }; }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return { error: 'URL must be http(s).' };
-  }
+  // Validates scheme + DNS-resolves to block SSRF against LAN/loopback/
+  // metadata services (e.g. http://router.local, http://169.254.169.254).
+  try { await assertExternalUrl(url); } catch (e) { return { error: e.message }; }
   try {
     const res = await fetch(url, { headers: { 'User-Agent': 'Airshelf/0.1' } });
     if (!res.ok) return { error: `Server returned ${res.status}.` };
@@ -1484,7 +1596,7 @@ ipcMain.handle('books:showContextMenu', (e, id) => {
     {
       label: 'Copy download URL',
       click: () => {
-        const url = `http://${getLocalIP()}:${PORT}/download/${book.id}`;
+        const url = `http://${getLocalIP()}:${PORT}/${serverToken}/download/${book.id}`;
         require('electron').clipboard.writeText(url);
       },
     },
