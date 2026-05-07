@@ -103,17 +103,32 @@ function extractCoverViaCalibre(filePath, outPath) {
 
 // Downsize a cover image in place using macOS sips (or ignore if unavailable).
 // Kindle browser renders large JPEGs slowly line-by-line, so we keep them small.
+//
+// Atomic: sips writes to a sibling .tmp path, then we rename over the original.
+// Previously the source and destination were the same path; sips supports that,
+// but a crash mid-write would have corrupted the cover with no backup.
 function resizeCoverInPlace(filePath, maxDim = 500) {
   return new Promise((resolve) => {
     if (process.platform !== 'darwin') return resolve(false);
-    // Skip if already small
     try {
       const size = fs.statSync(filePath).size;
       if (size < 60 * 1024) return resolve(false); // already small
     } catch { return resolve(false); }
 
-    execFile('/usr/bin/sips', ['-Z', String(maxDim), '-s', 'format', 'jpeg', '-s', 'formatOptions', '80', filePath, '--out', filePath], { timeout: 30000 }, (err) => {
-      resolve(!err);
+    const tmp = `${filePath}.resize.tmp`;
+    execFile('/usr/bin/sips', ['-Z', String(maxDim), '-s', 'format', 'jpeg', '-s', 'formatOptions', '80', filePath, '--out', tmp], { timeout: 30000 }, (err) => {
+      if (err) {
+        try { fs.unlinkSync(tmp); } catch {}
+        return resolve(false);
+      }
+      try {
+        fs.renameSync(tmp, filePath);
+        resolve(true);
+      } catch (renameErr) {
+        try { fs.unlinkSync(tmp); } catch {}
+        console.warn('resizeCoverInPlace: rename failed', renameErr.message);
+        resolve(false);
+      }
     });
   });
 }
@@ -1186,7 +1201,12 @@ function startServer() {
           'Content-Length': stat.size,
           'Content-Disposition': `attachment; filename="${downloadName}"`,
         });
-        fs.createReadStream(filePath).pipe(res);
+        const dlStream = fs.createReadStream(filePath);
+        // Kindle aborts mid-download more than you'd expect (sleep, network
+        // flap). Without this, the read stream keeps pumping until EOF —
+        // wasting CPU and holding an FD until GC.
+        req.on('close', () => dlStream.destroy());
+        dlStream.pipe(res);
         return;
       }
       // Streams the original .epub for the in-app reader (epubjs needs the
@@ -1226,18 +1246,28 @@ function startServer() {
             headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
             headers['Content-Length'] = end - start + 1;
             res.writeHead(206, headers);
-            fs.createReadStream(epubPath, { start, end }).pipe(res);
+            const rangeStream = fs.createReadStream(epubPath, { start, end });
+            req.on('close', () => rangeStream.destroy());
+            rangeStream.pipe(res);
             return;
           }
         }
         headers['Content-Length'] = stat.size;
         res.writeHead(200, headers);
-        fs.createReadStream(epubPath).pipe(res);
+        const epubStream = fs.createReadStream(epubPath);
+        req.on('close', () => epubStream.destroy());
+        epubStream.pipe(res);
         return;
       }
       res.writeHead(404); res.end('Not found');
     } catch (e) {
-      res.writeHead(500); res.end('Error');
+      // Server-level catch was returning a generic "Error" body with no log
+      // — debugging download failures was blind. Log the stack to the main-
+      // process console and surface the message to the client (only in
+      // non-production; production builds shouldn't leak internals).
+      console.error('[server] request failed', req.method, req.url, '\n', e);
+      res.writeHead(500);
+      res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
     }
   });
   server.listen(PORT, '0.0.0.0');
