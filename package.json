@@ -14,6 +14,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "build": {
     "appId": "com.airshelf.app",
     "productName": "Airshelf",
