@@ -904,6 +904,36 @@ body {
 .setting-label { font-weight: 600; }
 .setting-value { color: var(--text-sub); font-family: var(--font-mono); }
 
+.setting-row-stack {
+  display: block;
+  padding: 16px 18px;
+}
+.setting-row-stack .setting-sub {
+  color: var(--text-sub);
+  font-size: var(--text-base);
+  margin-top: 4px;
+}
+.setting-row-stack .setting-actions {
+  margin-top: 12px;
+}
+.setting-btn {
+  padding: var(--space-2) 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--text-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing), border-color var(--duration-fast) var(--easing);
+}
+.setting-btn:hover { border-color: var(--accent); }
+.setting-btn:active { transform: translateY(1px); }
+.setting-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.setting-btn-danger { color: #b91c1c; border-color: rgba(185, 28, 28, 0.4); }
+.setting-btn-danger:hover { border-color: #b91c1c; background: rgba(185, 28, 28, 0.06); }
+
 /* ============================================================
    Toast
    ============================================================ */

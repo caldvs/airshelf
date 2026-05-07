@@ -1534,6 +1534,128 @@ ipcMain.handle('cover:setFromFile', async (_e, bookId) => {
   }
 });
 
+// ---------- Backup / restore ----------
+
+ipcMain.handle('library:backup', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Back up library',
+    defaultPath: `airshelf-backup-${today}.zip`,
+    filters: [{ name: 'Zip Archive', extensions: ['zip'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  try {
+    const meta = loadMeta();
+    const zip = new AdmZip();
+    zip.addFile(
+      'manifest.json',
+      Buffer.from(JSON.stringify(buildManifest({ bookCount: meta.books.length }), null, 2)),
+    );
+    if (fs.existsSync(metaFile)) {
+      zip.addLocalFile(metaFile, '', 'books.json');
+    } else {
+      zip.addFile('books.json', Buffer.from(JSON.stringify({ books: [] }, null, 2)));
+    }
+    if (fs.existsSync(booksDir)) zip.addLocalFolder(booksDir, 'books');
+    zip.writeZip(result.filePath);
+    const size = fs.statSync(result.filePath).size;
+    return { ok: true, path: result.filePath, size, bookCount: meta.books.length };
+  } catch (e) {
+    console.error('Backup failed:', e);
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('library:restore', async () => {
+  const open = await dialog.showOpenDialog(mainWindow, {
+    title: 'Restore library from backup',
+    properties: ['openFile'],
+    filters: [{ name: 'Zip Archive', extensions: ['zip'] }],
+  });
+  if (open.canceled || !open.filePaths[0]) return { canceled: true };
+  const zipPath = open.filePaths[0];
+
+  // Confirm before clobbering the current library. Returning the file count
+  // up front lets the renderer tell the user what they're about to overwrite.
+  const confirm = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: ['Cancel', 'Restore'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Replace current library?',
+    message: 'This will replace your current library with the contents of the backup.',
+    detail: 'Your existing books and metadata are renamed aside (with a `.backup-<timestamp>` suffix) so you can recover them manually if needed.',
+  });
+  if (confirm.response !== 1) return { canceled: true };
+
+  let stagingDir = null;
+  try {
+    let zip;
+    try { zip = new AdmZip(zipPath); }
+    catch (e) { return { error: `Could not read zip: ${e.message}` }; }
+    const entries = zip.getEntries();
+
+    const manifestEntry = entries.find(e => e.entryName === 'manifest.json');
+    let manifest = null;
+    if (manifestEntry) {
+      try { manifest = JSON.parse(manifestEntry.getData().toString('utf8')); }
+      catch { return { error: 'Backup manifest.json is corrupt.' }; }
+    }
+    const booksJsonEntry = entries.find(e => e.entryName === 'books.json');
+    let backupMeta = null;
+    if (booksJsonEntry) {
+      try { backupMeta = JSON.parse(booksJsonEntry.getData().toString('utf8')); }
+      catch { return { error: 'Backup books.json is corrupt.' }; }
+    }
+    // Pull every flat file under books/ from the archive. Reject directory
+    // entries upfront — the validator only handles single basenames.
+    const fileNames = [];
+    const fileEntries = [];
+    for (const e of entries) {
+      if (!e.entryName.startsWith('books/')) continue;
+      if (e.isDirectory) continue;
+      const rel = e.entryName.slice('books/'.length);
+      fileNames.push(rel);
+      fileEntries.push(e);
+    }
+    const v = validateBackup({ manifest, meta: backupMeta, fileNames });
+    if (!v.ok) return { error: v.error };
+
+    // Stage the restore under userData so the eventual rename is same-volume
+    // and atomic. If any write fails, we abort before touching live state.
+    const userData = app.getPath('userData');
+    stagingDir = path.join(userData, `restore-staging-${Date.now()}`);
+    const stagingBooks = path.join(stagingDir, 'books');
+    fs.mkdirSync(stagingBooks, { recursive: true });
+    for (const e of fileEntries) {
+      const out = path.join(stagingBooks, e.entryName.slice('books/'.length));
+      fs.writeFileSync(out, e.getData());
+    }
+    fs.writeFileSync(path.join(stagingDir, 'books.json'), booksJsonEntry.getData());
+
+    // Swap. Two renames is not strictly atomic — a crash between them leaves
+    // an inconsistent pair. The .backup-<ts> aside files give the user a path
+    // to manual recovery; for a personal app this is the right trade-off.
+    const ts = Date.now();
+    if (fs.existsSync(booksDir)) fs.renameSync(booksDir, `${booksDir}.backup-${ts}`);
+    if (fs.existsSync(metaFile)) fs.renameSync(metaFile, `${metaFile}.backup-${ts}`);
+    fs.renameSync(stagingBooks, booksDir);
+    fs.renameSync(path.join(stagingDir, 'books.json'), metaFile);
+    try { fs.rmdirSync(stagingDir); } catch {}
+    stagingDir = null;
+
+    metaCache = null;
+    if (mainWindow) mainWindow.webContents.send('books:changed');
+    return { ok: true, bookCount: backupMeta.books.length };
+  } catch (e) {
+    console.error('Restore failed:', e);
+    if (stagingDir) {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+    }
+    return { error: e.message };
+  }
+});
+
 // ---------- Context menu ----------
 
 ipcMain.handle('books:showContextMenu', (e, id) => {

@@ -20,4 +20,6 @@ contextBridge.exposeInMainWorld('airshelf', {
   onCoverPromptUrl: (cb) => {
     ipcRenderer.on('cover:prompt-url', (_e, id) => cb(id));
   },
+  backupLibrary: () => ipcRenderer.invoke('library:backup'),
+  restoreLibrary: () => ipcRenderer.invoke('library:restore'),
 });

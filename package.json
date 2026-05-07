@@ -34,6 +34,7 @@
       "safety.js",
       "hash.js",
       "concurrency.js",
+      "backup.js",
       "renderer/**/*",
       "build/icon.icns",
       "build/icon_256.png",
