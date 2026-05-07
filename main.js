@@ -236,6 +236,7 @@ async function getOrBuildReaderEpub(book) {
 }
 
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
+const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
 const authLimiter = new FailedAuthLimiter();
 
@@ -1575,8 +1576,9 @@ ipcMain.handle('library:restore', async () => {
   if (open.canceled || !open.filePaths[0]) return { canceled: true };
   const zipPath = open.filePaths[0];
 
-  // Confirm before clobbering the current library. Returning the file count
-  // up front lets the renderer tell the user what they're about to overwrite.
+  // Confirm before clobbering the current library. We don't peek inside the
+  // zip first because validation will reject it with a more useful error
+  // (manifest mismatch, traversal entry) than a count would convey.
   const confirm = await dialog.showMessageBox(mainWindow, {
     type: 'warning',
     buttons: ['Cancel', 'Restore'],
@@ -1595,15 +1597,41 @@ ipcMain.handle('library:restore', async () => {
     catch (e) { return { error: `Could not read zip: ${e.message}` }; }
     const entries = zip.getEntries();
 
+    // Quota guards against a zip bomb or accidentally selected non-backup
+    // file. Numbers are generous so a real personal library never trips
+    // them; the goal is to refuse pathological inputs before we start
+    // decompressing 1000x ratios into memory.
+    const MAX_ENTRIES = 50_000;
+    const MAX_TOTAL_UNCOMPRESSED = 50 * 1024 * 1024 * 1024; // 50 GB
+    const MAX_JSON_BYTES = 4 * 1024 * 1024;                 // 4 MB for manifest/books.json
+    if (entries.length > MAX_ENTRIES) {
+      return { error: `Backup has too many entries (${entries.length} > ${MAX_ENTRIES}).` };
+    }
+    let totalUncompressed = 0;
+    for (const e of entries) {
+      const size = (e.header && Number(e.header.size)) || 0;
+      if (size < 0) return { error: 'Backup entry has invalid size.' };
+      totalUncompressed += size;
+      if (totalUncompressed > MAX_TOTAL_UNCOMPRESSED) {
+        return { error: 'Backup uncompressed size exceeds limit (50 GB).' };
+      }
+    }
+
     const manifestEntry = entries.find(e => e.entryName === 'manifest.json');
     let manifest = null;
     if (manifestEntry) {
+      if ((manifestEntry.header && Number(manifestEntry.header.size)) > MAX_JSON_BYTES) {
+        return { error: 'Backup manifest.json is unreasonably large.' };
+      }
       try { manifest = JSON.parse(manifestEntry.getData().toString('utf8')); }
       catch { return { error: 'Backup manifest.json is corrupt.' }; }
     }
     const booksJsonEntry = entries.find(e => e.entryName === 'books.json');
     let backupMeta = null;
     if (booksJsonEntry) {
+      if ((booksJsonEntry.header && Number(booksJsonEntry.header.size)) > MAX_JSON_BYTES) {
+        return { error: 'Backup books.json is unreasonably large.' };
+      }
       try { backupMeta = JSON.parse(booksJsonEntry.getData().toString('utf8')); }
       catch { return { error: 'Backup books.json is corrupt.' }; }
     }

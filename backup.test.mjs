@@ -97,15 +97,17 @@ describe('validateBackup', () => {
     const r1 = validateBackup({
       manifest: okManifest,
       meta: { books: [{ ...safeBook, originalFile: 'a/b' }] },
-      fileNames: [],
+      fileNames: ['abc123.azw3', 'abc123.cover'],
     });
     expect(r1.ok).toBe(false);
+    expect(r1.error).toMatch(/unsafe entry/);
     const r2 = validateBackup({
       manifest: okManifest,
       meta: { books: [{ ...safeBook, cover: '..' }] },
-      fileNames: [],
+      fileNames: ['abc123.azw3', 'abc123.epub'],
     });
     expect(r2.ok).toBe(false);
+    expect(r2.error).toMatch(/unsafe entry/);
   });
 
   it('allows null originalFile / cover', () => {
@@ -135,5 +137,35 @@ describe('validateBackup', () => {
     });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/unsafe path/);
+  });
+
+  it('rejects when book.file is referenced but missing from fileNames', () => {
+    const r = validateBackup({
+      manifest: okManifest,
+      meta: { books: [{ id: 'x', title: 't', file: 'missing.azw3' }] },
+      fileNames: [],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/missing referenced file/i);
+  });
+
+  it('rejects when originalFile is referenced but missing from fileNames', () => {
+    const r = validateBackup({
+      manifest: okManifest,
+      meta: { books: [{ ...safeBook, cover: null, originalFile: 'orig.epub' }] },
+      fileNames: ['abc123.azw3'],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/missing referenced originalFile/i);
+  });
+
+  it('rejects when cover is referenced but missing from fileNames', () => {
+    const r = validateBackup({
+      manifest: okManifest,
+      meta: { books: [{ ...safeBook, originalFile: null, cover: 'cov.cover' }] },
+      fileNames: ['abc123.azw3'],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/missing referenced cover/i);
   });
 });

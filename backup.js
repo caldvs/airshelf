@@ -40,28 +40,46 @@ function validateBackup({ manifest, meta, fileNames }) {
   if (!meta || !Array.isArray(meta.books)) {
     return { ok: false, error: 'Backup books.json is malformed.' };
   }
-  // Path-traversal defence: reject any metadata entry whose file/originalFile/
-  // cover isn't a single safe basename. Mirrors the loadMeta() filter — a
-  // tampered backup with `file: "../../etc/passwd"` would otherwise leak.
-  for (const b of meta.books) {
-    if (!b || !isSafeBasename(b.file)) {
-      return { ok: false, error: `Backup contains unsafe entry: file=${b && b.file}` };
-    }
-    if (b.originalFile != null && !isSafeBasename(b.originalFile)) {
-      return { ok: false, error: `Backup contains unsafe entry: originalFile=${b.originalFile}` };
-    }
-    if (b.cover != null && !isSafeBasename(b.cover)) {
-      return { ok: false, error: `Backup contains unsafe entry: cover=${b.cover}` };
-    }
-  }
   if (!Array.isArray(fileNames)) {
     return { ok: false, error: 'Backup file list is malformed.' };
   }
   // Reject any file under books/ that isn't a flat basename — adm-zip will
   // happily extract `books/../../etc/passwd` if we don't gate the entries.
+  // Done before the metadata cross-checks so the error message points at
+  // the unsafe file rather than at a "missing reference" caused by it.
   for (const name of fileNames) {
     if (!isSafeBasename(name)) {
       return { ok: false, error: `Backup contains unsafe path: books/${name}` };
+    }
+  }
+  const fileSet = new Set(fileNames);
+  // Path-traversal defence + cross-reference. Reject any metadata entry
+  // whose file/originalFile/cover isn't a single safe basename (mirrors the
+  // loadMeta() filter), and require every referenced name to actually be
+  // present under books/ in the archive — otherwise restore would produce
+  // a broken library where /download throws on a missing file.
+  for (const b of meta.books) {
+    if (!b || !isSafeBasename(b.file)) {
+      return { ok: false, error: `Backup contains unsafe entry: file=${b && b.file}` };
+    }
+    if (!fileSet.has(b.file)) {
+      return { ok: false, error: `Backup is missing referenced file: ${b.file}` };
+    }
+    if (b.originalFile != null) {
+      if (!isSafeBasename(b.originalFile)) {
+        return { ok: false, error: `Backup contains unsafe entry: originalFile=${b.originalFile}` };
+      }
+      if (!fileSet.has(b.originalFile)) {
+        return { ok: false, error: `Backup is missing referenced originalFile: ${b.originalFile}` };
+      }
+    }
+    if (b.cover != null) {
+      if (!isSafeBasename(b.cover)) {
+        return { ok: false, error: `Backup contains unsafe entry: cover=${b.cover}` };
+      }
+      if (!fileSet.has(b.cover)) {
+        return { ok: false, error: `Backup is missing referenced cover: ${b.cover}` };
+      }
     }
   }
   return { ok: true };
