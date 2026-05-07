@@ -213,9 +213,30 @@ document.addEventListener('keydown', async (e) => {
   }
 });
 
+// Last result of books:list, kept so the search filter can re-render without
+// a round-trip to main. Updated by refresh() and by books:changed events.
+let allBooks = [];
+let searchQuery = '';
+
+function bookMatchesQuery(b, q) {
+  // Plain substring matching is enough for the scale (hundreds of books, per
+  // issue #42) and avoids needing tokenisation, fuzzy scoring, or an index.
+  // Year is coerced to string so `2014` matches a numeric year field.
+  return (b.title || '').toLowerCase().includes(q)
+      || (b.author || '').toLowerCase().includes(q)
+      || String(b.year || '').includes(q);
+}
+
+function applyBookView() {
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = q ? allBooks.filter(b => bookMatchesQuery(b, q)) : allBooks;
+  renderBooks(filtered);
+  updateSearchStatus(q, filtered.length);
+}
+
 async function refresh() {
-  const books = await window.airshelf.listBooks();
-  renderBooks(books);
+  allBooks = await window.airshelf.listBooks();
+  applyBookView();
 }
 
 function handleAddResult(result) {
@@ -366,6 +387,77 @@ document.querySelectorAll('.theme-swatch').forEach(sw => {
     localStorage.setItem('airshelf-theme', theme);
     document.querySelectorAll('.theme-swatch').forEach(s => s.classList.toggle('active', s.dataset.theme === theme));
   });
+});
+
+// ---- Search palette ----
+//
+// Toggled by ⌘K / Ctrl+K. Live-filters the shelf as the user types. Filter
+// state survives palette close so a result-narrowed shelf stays narrowed
+// until the user clears the query — closing is just dismissing the palette,
+// not the search. ESC inside the palette clears + closes.
+
+const searchPalette = document.getElementById('search-palette');
+const searchInput = document.getElementById('search-input');
+const searchStatus = document.getElementById('search-palette-status');
+
+function updateSearchStatus(q, n) {
+  if (!q) { searchStatus.textContent = ''; return; }
+  const total = allBooks.length;
+  searchStatus.textContent = n === total
+    ? `${n} match${n === 1 ? '' : 'es'}`
+    : `${n} of ${total}`;
+}
+
+function openSearchPalette() {
+  searchPalette.classList.add('active');
+  searchInput.value = searchQuery;
+  // Defer focus until after the paint that adds .active so the keyboard
+  // doesn't appear and immediately get blurred by the layout shift.
+  requestAnimationFrame(() => {
+    searchInput.focus();
+    searchInput.select();
+  });
+}
+
+function closeSearchPalette() {
+  searchPalette.classList.remove('active');
+}
+
+searchInput.addEventListener('input', () => {
+  searchQuery = searchInput.value;
+  applyBookView();
+});
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (searchInput.value) {
+      // First Escape clears, second closes — common palette behaviour.
+      searchInput.value = '';
+      searchQuery = '';
+      applyBookView();
+    } else {
+      closeSearchPalette();
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    closeSearchPalette();
+  }
+});
+
+searchPalette.addEventListener('click', (e) => {
+  // Click on the backdrop (outside the box) closes; clicks inside don't.
+  if (e.target === searchPalette) closeSearchPalette();
+});
+
+document.addEventListener('keydown', (e) => {
+  // ⌘K (mac) or Ctrl+K (windows/linux). Don't fire when an input/textarea
+  // already has focus elsewhere — that would trap typing in unrelated forms.
+  const isCmdK = (e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K');
+  if (!isCmdK) return;
+  e.preventDefault();
+  if (searchPalette.classList.contains('active')) closeSearchPalette();
+  else openSearchPalette();
 });
 
 // ---- Init ----

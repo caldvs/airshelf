@@ -992,6 +992,68 @@ body {
 .modal-btn:active { transform: translateY(1px); }
 
 /* ============================================================
+   Search palette (⌘K)
+   ============================================================ */
+
+.search-palette {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12vh;
+  z-index: var(--z-modal);
+}
+.search-palette.active { display: flex; }
+
+.search-palette-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(540px, 90vw);
+  padding: 12px var(--space-4);
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+}
+.search-palette-icon { color: var(--text-sub); flex-shrink: 0; }
+.search-palette-box input[type="search"] {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-lg);
+  outline: none;
+  padding: 4px 0;
+  /* Drop the WebKit default cancel button — we have our own clear behaviour */
+  -webkit-appearance: none;
+  appearance: none;
+}
+.search-palette-box input[type="search"]::-webkit-search-cancel-button { display: none; }
+
+.search-palette-hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  color: var(--text-sub);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.search-palette-status {
+  margin-top: 8px;
+  font-size: var(--text-sm);
+  color: var(--text-sub);
+  min-height: 1em;
+}
+
+/* ============================================================
    Busy overlay
    ============================================================ */
 
