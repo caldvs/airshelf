@@ -37,6 +37,7 @@ const PORT = parseInt(process.env.PORT, 10) || 6790;
 
 // Files the Kindle experimental browser can download directly
 const { normalizeKindleMetadata } = require('./inject-asin.js');
+const { titlesMatch, cleanTitle, guessAuthorFromFilename } = require('./titles.js');
 
 const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us
@@ -363,51 +364,8 @@ function extractEpubTitle(epubPath) {
   return extractEpubMeta(epubPath).title;
 }
 
-// Loose title matching: returns true if one title is effectively a prefix of the other.
-function titlesMatch(a, b) {
-  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
-  const na = norm(a);
-  const nb = norm(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-  // Prefix match at word boundaries with a minimum length
-  if (na.length >= 4 && nb.startsWith(na + ' ')) return true;
-  if (nb.length >= 4 && na.startsWith(nb + ' ')) return true;
-  return false;
-}
-
-// Clean a raw title/filename into something searchable.
-// Strips extensions, author separators, series markers, underscores, etc.
-function cleanTitle(raw) {
-  if (!raw) return '';
-  let t = String(raw);
-  // Drop extension if present
-  t = t.replace(/\.(epub|mobi|azw3?|prc|pdf|txt|fb2|lit|lrf|pdb|rtf|docx|odt|html?)$/i, '');
-  // Split off " -- Author" or " - Author" — common filename convention
-  t = t.split(/\s+--?\s+/)[0];
-  // Drop parenthetical series/book markers "(The Foo Book 1)"
-  t = t.replace(/\s*\([^)]*\)\s*$/g, '');
-  // Replace underscores and extra whitespace
-  t = t.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
-  return t;
-}
-
-// Attempt to pull an author out of a raw filename like "Title -- Author.epub"
-function guessAuthorFromFilename(raw) {
-  if (!raw) return null;
-  const stripped = String(raw).replace(/\.(epub|mobi|azw3?|prc|pdf|txt|fb2|lit|lrf|pdb|rtf|docx|odt|html?)$/i, '');
-  const parts = stripped.split(/\s+--?\s+/);
-  if (parts.length >= 2) {
-    // Authors are often written "Last, First" — swap if so
-    const candidate = parts[parts.length - 1].trim();
-    if (/,/.test(candidate)) {
-      const [last, first] = candidate.split(',').map(s => s.trim());
-      if (first && last) return `${first} ${last}`;
-    }
-    return candidate;
-  }
-  return null;
-}
+// titlesMatch / cleanTitle / guessAuthorFromFilename moved to ./titles.js
+// — single canonical impl, requires above.
 
 // Query Open Library search for a book. Returns the first matching doc or null.
 // Tries multiple query variants so that messy filename-derived titles still match.
@@ -600,7 +558,6 @@ async function addBook(srcPath) {
   let kindleExt;
   let converted = false;
   const coverFullPath = coverFile ? path.join(booksDir, coverFile) : null;
-  const shouldConvert = !KINDLE_NATIVE_EXTS.includes(ext) || !!coverFullPath;
 
   // Convert everything to AZW3 (Amazon's KF8). The .azw3 extension and
   // format make Kindle's library indexer treat the file as a native Amazon
@@ -1262,7 +1219,7 @@ function startServer() {
       // PW3's experimental browser pre-checks URL extensions against a
       // whitelist; by omitting the extension entirely, we bypass that check
       // and let Content-Disposition set the filename instead.
-      const dlMatch = subPath.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/);
+      const dlMatch = subPath.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/i);
       if (dlMatch) {
         const id = dlMatch[1];
         const book = listBooks().find(b => b.id === id);
@@ -1431,7 +1388,12 @@ ipcMain.handle('books:add', async () => {
     filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map(e => e.slice(1)) }],
   });
   if (result.canceled) return { added: [], errors: [], duplicates: [] };
-  return await addManyBooks(result.filePaths);
+  const out = await addManyBooks(result.filePaths);
+  // Notify renderer so the shelf re-fetches without the renderer having to
+  // remember to refresh after every add. The drag-drop and context-menu
+  // paths already do this; the dialog path was the odd one out.
+  if (out.added.length && mainWindow) mainWindow.webContents.send('books:changed');
+  return out;
 });
 
 ipcMain.handle('books:pick', async () => {
