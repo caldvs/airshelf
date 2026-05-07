@@ -391,18 +391,23 @@ async function refreshCalibreStatus() {
   } catch {
     s = { found: false, binDir: null, source: null };
   }
+  // Forget-button visibility is tied to whether a user path is *saved* in
+  // settings, not to whether it's currently active. A saved-but-stale entry
+  // (Calibre moved/uninstalled, auto-detect took over) still needs to be
+  // clearable from the UI, otherwise the dead path stays in settings.json
+  // forever.
+  calibreClearBtn.classList.toggle('hidden', !s.userPathSaved);
+
   if (s.found) {
     calibreStatusEl.textContent = s.source === 'user' ? 'Found (custom path)' : 'Found';
     calibreStatusPathEl.textContent = s.binDir || '';
     calibreBanner.classList.add('hidden');
-    calibreClearBtn.classList.toggle('hidden', s.source !== 'user');
     // Clear the dismiss flag on every found-state read, not just after a
     // successful Locate, so an auto-detected Calibre arrival also resets it.
     localStorage.removeItem(CALIBRE_BANNER_DISMISS_KEY);
   } else {
     calibreStatusEl.textContent = 'Not found';
     calibreStatusPathEl.textContent = '';
-    calibreClearBtn.classList.add('hidden');
     if (!localStorage.getItem(CALIBRE_BANNER_DISMISS_KEY)) {
       calibreBanner.classList.remove('hidden');
     }

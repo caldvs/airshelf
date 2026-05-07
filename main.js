@@ -1537,10 +1537,22 @@ ipcMain.handle('server:info', () => {
 // can offer to forget the saved path without also wiping an auto-detection.
 
 function calibreStatusPayload() {
+  // userPathSaved reflects whether settings has *any* calibreBinDir entry,
+  // even if the directory no longer exists or is missing binaries. The UI
+  // uses this to surface "Forget saved path" when a user-saved value has
+  // become stale and auto-detection took over (source === 'auto'); without
+  // this signal there's no way to clear the dead entry from settings.json.
+  const rawSaved = loadSettings().calibreBinDir;
+  const userPathSaved = typeof rawSaved === 'string' && rawSaved.length > 0;
   const userDir = getCalibreUserBinDir();
   const binDir = findCalibreBinDir();
-  if (!binDir) return { found: false, binDir: null, source: null };
-  return { found: true, binDir, source: userDir && binDir === userDir ? 'user' : 'auto' };
+  if (!binDir) return { found: false, binDir: null, source: null, userPathSaved };
+  return {
+    found: true,
+    binDir,
+    source: userDir && binDir === userDir ? 'user' : 'auto',
+    userPathSaved,
+  };
 }
 
 ipcMain.handle('calibre:status', () => calibreStatusPayload());
