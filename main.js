@@ -236,6 +236,7 @@ async function getOrBuildReaderEpub(book) {
 }
 
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
+const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
 const authLimiter = new FailedAuthLimiter();
 
@@ -1352,6 +1353,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
