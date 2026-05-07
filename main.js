@@ -1119,6 +1119,22 @@ function renderIndexHtml() {
 
 function startServer() {
   if (server) return;
+
+  function pipeStreamToResponse(stream, req, res) {
+    req.on('close', () => stream.destroy());
+    stream.on('error', (e) => {
+      console.error('[server] stream failed', req.method, req.url, '\n', e);
+      if (res.writableEnded || res.destroyed) return;
+      if (res.headersSent) {
+        res.destroy(e);
+        return;
+      }
+      res.writeHead(500);
+      res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
+    });
+    stream.pipe(res);
+  }
+
   server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
@@ -1205,8 +1221,7 @@ function startServer() {
         // Kindle aborts mid-download more than you'd expect (sleep, network
         // flap). Without this, the read stream keeps pumping until EOF —
         // wasting CPU and holding an FD until GC.
-        req.on('close', () => dlStream.destroy());
-        dlStream.pipe(res);
+        pipeStreamToResponse(dlStream, req, res);
         return;
       }
       // Streams the original .epub for the in-app reader (epubjs needs the
@@ -1247,16 +1262,14 @@ function startServer() {
             headers['Content-Length'] = end - start + 1;
             res.writeHead(206, headers);
             const rangeStream = fs.createReadStream(epubPath, { start, end });
-            req.on('close', () => rangeStream.destroy());
-            rangeStream.pipe(res);
+            pipeStreamToResponse(rangeStream, req, res);
             return;
           }
         }
         headers['Content-Length'] = stat.size;
         res.writeHead(200, headers);
         const epubStream = fs.createReadStream(epubPath);
-        req.on('close', () => epubStream.destroy());
-        epubStream.pipe(res);
+        pipeStreamToResponse(epubStream, req, res);
         return;
       }
       res.writeHead(404); res.end('Not found');
