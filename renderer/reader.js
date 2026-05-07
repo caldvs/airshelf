@@ -88,11 +88,12 @@
       book = ePub(ab);
     } catch (e) {
       console.error('[reader] fetch failed', e);
+      const errorMessage = e?.message ?? String(e);
       const errorEl = document.createElement('div');
       errorEl.style.padding = '32px';
       errorEl.style.color = '#b00';
       errorEl.style.font = '14px system-ui';
-      errorEl.textContent = `Reader failed to load: ${e?.message ?? String(e)}`;
+      errorEl.textContent = `Reader failed to load: ${errorMessage}`;
       viewportEl.replaceChildren(errorEl);
       return;
     }
