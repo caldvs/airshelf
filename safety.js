@@ -35,15 +35,61 @@ function isPrivateIpv4(ip) {
   return PRIVATE_V4.some(cidr => inV4Range(ip, cidr));
 }
 
+// Parse any valid IPv6 string into an 8-group array of 16-bit ints.
+// Handles `::` shorthand and the IPv4-in-IPv6 dotted form (`::ffff:1.2.3.4`).
+// Returns null on invalid input.
+function parseIpv6(s) {
+  if (!net.isIPv6(s)) return null;
+  const lc = s.toLowerCase();
+  let head, tail;
+  if (lc.includes('::')) {
+    const [h, t] = lc.split('::');
+    head = h ? h.split(':') : [];
+    tail = t ? t.split(':') : [];
+  } else {
+    head = lc.split(':');
+    tail = [];
+  }
+  // Decode a trailing IPv4 form (`::ffff:1.2.3.4`) into two hex groups.
+  const decodeTrailingV4 = (arr) => {
+    const last = arr[arr.length - 1];
+    if (!last || !last.includes('.')) return arr;
+    if (!net.isIPv4(last)) return null;
+    const [a, b, c, d] = last.split('.').map(Number);
+    return [...arr.slice(0, -1),
+      (((a << 8) | b) >>> 0).toString(16),
+      (((c << 8) | d) >>> 0).toString(16)];
+  };
+  if (tail.length) tail = decodeTrailingV4(tail); else head = decodeTrailingV4(head);
+  if (head === null || tail === null) return null;
+  const fill = 8 - head.length - tail.length;
+  if (fill < 0) return null;
+  const groups = [...head, ...Array(fill).fill('0'), ...tail].map(g => parseInt(g, 16));
+  if (groups.length !== 8 || groups.some(g => Number.isNaN(g) || g < 0 || g > 0xffff)) return null;
+  return groups;
+}
+
 function isPrivateIpv6(ip) {
-  const lc = ip.toLowerCase();
-  if (lc === '::' || lc === '::1') return true;
-  if (lc.startsWith('fe80:')) return true;       // link-local
-  if (lc.startsWith('fc') || lc.startsWith('fd')) return true; // ULA
-  if (lc.startsWith('ff')) return true;          // multicast
-  // IPv4-mapped IPv6: ::ffff:1.2.3.4
-  const m = lc.match(/^::ffff:([\d.]+)$/);
-  if (m && net.isIPv4(m[1])) return isPrivateIpv4(m[1]);
+  const g = parseIpv6(ip);
+  if (!g) return false;
+  // :: (unspecified) and ::1 (loopback)
+  if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 &&
+      g[4] === 0 && g[5] === 0 && g[6] === 0 && (g[7] === 0 || g[7] === 1)) return true;
+  // ::ffff:0:0/96 — IPv4-mapped. Decode and re-check via the v4 ranges so
+  // hex-form spoofs like ::ffff:7f00:1 (= 127.0.0.1) can't sneak through.
+  if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0xffff) {
+    const a = (g[6] >> 8) & 0xff, b = g[6] & 0xff;
+    const c = (g[7] >> 8) & 0xff, d = g[7] & 0xff;
+    return isPrivateIpv4(`${a}.${b}.${c}.${d}`);
+  }
+  // fe80::/10 (link-local). First 10 bits = 1111111010, so first hextet
+  // ranges fe80–febf when masked with 0xffc0. The earlier impl only matched
+  // the literal "fe80:" prefix, letting fe90/fea0/feb0 slip past.
+  if ((g[0] & 0xffc0) === 0xfe80) return true;
+  // fc00::/7 (ULA). First 7 bits = 1111110.
+  if ((g[0] & 0xfe00) === 0xfc00) return true;
+  // ff00::/8 (multicast)
+  if ((g[0] & 0xff00) === 0xff00) return true;
   return false;
 }
 

@@ -40,23 +40,54 @@ describe('isPrivateIpv4', () => {
 });
 
 describe('isPrivateIpv6', () => {
-  it('flags loopback, link-local, ULA, multicast', () => {
+  it('flags loopback, unspecified, ULA, multicast', () => {
     expect(isPrivateIpv6('::1')).toBe(true);
     expect(isPrivateIpv6('::')).toBe(true);
-    expect(isPrivateIpv6('fe80::1')).toBe(true);
     expect(isPrivateIpv6('fc00::1')).toBe(true);
     expect(isPrivateIpv6('fd00::1')).toBe(true);
     expect(isPrivateIpv6('ff02::1')).toBe(true);
   });
 
-  it('handles IPv4-mapped IPv6 by checking the v4 portion', () => {
+  it('flags fe80::/10 across the full prefix range', () => {
+    // First 10 bits are 1111111010, so first hextet runs fe80–febf.
+    // Previous impl only matched literal "fe80:" which let fe90/fea0/feb0 slip.
+    expect(isPrivateIpv6('fe80::1')).toBe(true);
+    expect(isPrivateIpv6('fe90::1')).toBe(true);
+    expect(isPrivateIpv6('fea0::1')).toBe(true);
+    expect(isPrivateIpv6('feb0::1')).toBe(true);
+    expect(isPrivateIpv6('febf::1')).toBe(true);
+    // Just outside the /10:
+    expect(isPrivateIpv6('fec0::1')).toBe(false);
+    expect(isPrivateIpv6('fe7f::1')).toBe(false);
+  });
+
+  it('handles IPv4-mapped IPv6 in dotted form', () => {
     expect(isPrivateIpv6('::ffff:127.0.0.1')).toBe(true);
     expect(isPrivateIpv6('::ffff:192.168.1.1')).toBe(true);
+    expect(isPrivateIpv6('::ffff:169.254.169.254')).toBe(true);
     expect(isPrivateIpv6('::ffff:8.8.8.8')).toBe(false);
+  });
+
+  it('handles IPv4-mapped IPv6 in hex form (the SSRF bypass case)', () => {
+    // ::ffff:7f00:1 expands to 0:0:0:0:0:ffff:7f00:0001 → last 32 bits = 127.0.0.1
+    expect(isPrivateIpv6('::ffff:7f00:1')).toBe(true);
+    // ::ffff:c0a8:101 = 192.168.1.1
+    expect(isPrivateIpv6('::ffff:c0a8:101')).toBe(true);
+    // ::ffff:a9fe:a9fe = 169.254.169.254 (AWS metadata)
+    expect(isPrivateIpv6('::ffff:a9fe:a9fe')).toBe(true);
+    // ::ffff:808:808 = 8.8.8.8 — public
+    expect(isPrivateIpv6('::ffff:808:808')).toBe(false);
   });
 
   it('does not flag public v6', () => {
     expect(isPrivateIpv6('2606:4700:4700::1111')).toBe(false); // Cloudflare
+    expect(isPrivateIpv6('2001:db8::1')).toBe(false);          // documentation, not private
+  });
+
+  it('returns false on garbage input rather than crashing', () => {
+    expect(isPrivateIpv6('not-an-ip')).toBe(false);
+    expect(isPrivateIpv6('')).toBe(false);
+    expect(isPrivateIpv6('zzzz::1')).toBe(false);
   });
 });
 
