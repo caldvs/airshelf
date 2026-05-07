@@ -368,7 +368,75 @@ document.querySelectorAll('.theme-swatch').forEach(sw => {
   });
 });
 
+// ---- Calibre detection ----
+//
+// The banner above the shelf is dismissable per-version via localStorage so
+// users who genuinely don't need Calibre (Kindle-native formats only) aren't
+// nagged on every launch. The Settings panel always reflects current status.
+
+const CALIBRE_DOWNLOAD_URL = 'https://calibre-ebook.com/download_osx';
+const CALIBRE_BANNER_DISMISS_KEY = 'airshelf-calibre-banner-dismissed';
+
+const calibreBanner = document.getElementById('calibre-banner');
+const calibreStatusEl = document.getElementById('calibre-status');
+const calibreStatusPathEl = document.getElementById('calibre-status-path');
+const calibreClearBtn = document.getElementById('calibre-clear');
+
+async function refreshCalibreStatus() {
+  let s;
+  try {
+    s = await window.airshelf.calibreStatus();
+  } catch {
+    s = { found: false, binDir: null, source: null };
+  }
+  if (s.found) {
+    calibreStatusEl.textContent = s.source === 'user' ? 'Found (custom path)' : 'Found';
+    calibreStatusPathEl.textContent = s.binDir || '';
+    calibreBanner.classList.add('hidden');
+    calibreClearBtn.classList.toggle('hidden', s.source !== 'user');
+  } else {
+    calibreStatusEl.textContent = 'Not found';
+    calibreStatusPathEl.textContent = '';
+    calibreClearBtn.classList.add('hidden');
+    if (!localStorage.getItem(CALIBRE_BANNER_DISMISS_KEY)) {
+      calibreBanner.classList.remove('hidden');
+    }
+  }
+  return s;
+}
+
+async function calibreLocateFlow() {
+  const r = await window.airshelf.calibreLocate();
+  if (!r) return;
+  if (r.canceled) return;
+  if (r.error) { showToast(r.error, 'error'); return; }
+  // Locating successfully resets the dismissed state — if Calibre breaks
+  // again later we want the banner to come back.
+  localStorage.removeItem(CALIBRE_BANNER_DISMISS_KEY);
+  showToast('Calibre saved', 'success');
+  refreshCalibreStatus();
+}
+
+document.getElementById('calibre-banner-locate').addEventListener('click', calibreLocateFlow);
+document.getElementById('calibre-banner-get').addEventListener('click', () => {
+  window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
+});
+document.getElementById('calibre-banner-dismiss').addEventListener('click', () => {
+  localStorage.setItem(CALIBRE_BANNER_DISMISS_KEY, '1');
+  calibreBanner.classList.add('hidden');
+});
+document.getElementById('calibre-redetect').addEventListener('click', refreshCalibreStatus);
+document.getElementById('calibre-locate').addEventListener('click', calibreLocateFlow);
+document.getElementById('calibre-clear').addEventListener('click', async () => {
+  await window.airshelf.calibreClear();
+  refreshCalibreStatus();
+});
+document.getElementById('calibre-get').addEventListener('click', () => {
+  window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
+});
+
 // ---- Init ----
 refresh();
 loadServerInfo();
 setInterval(loadServerInfo, 5000);
+refreshCalibreStatus();

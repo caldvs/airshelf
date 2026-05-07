@@ -47,29 +47,40 @@ const CONVERTIBLE_EXTS = [
 ];
 const SUPPORTED_EXTS = [...KINDLE_NATIVE_EXTS, ...CONVERTIBLE_EXTS];
 
-// Locate Calibre's ebook-convert binary
-function findEbookConvert() {
-  const candidates = [
-    '/opt/homebrew/bin/ebook-convert',
-    '/usr/local/bin/ebook-convert',
-    '/Applications/calibre.app/Contents/MacOS/ebook-convert',
-  ];
-  for (const p of candidates) {
+// Locate Calibre's ebook-convert / ebook-meta binaries.
+//
+// Auto-probe a few well-known macOS install locations; if the user has pointed
+// us at a custom directory via the settings file (e.g. Calibre installed to
+// ~/Applications), check that first. We resolve the *binary* path each call
+// rather than caching, because the user may relocate Calibre while the app is
+// running and we want the next conversion to pick up the new path.
+const AUTO_CALIBRE_BIN_DIRS = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  '/Applications/calibre.app/Contents/MacOS',
+];
+
+function findCalibreBinary(name) {
+  const userDir = getCalibreUserBinDir();
+  const dirs = userDir ? [userDir, ...AUTO_CALIBRE_BIN_DIRS] : AUTO_CALIBRE_BIN_DIRS;
+  for (const dir of dirs) {
+    const p = path.join(dir, name);
     try { if (fs.existsSync(p)) return p; } catch {}
   }
   return null;
 }
 
-function findEbookMeta() {
-  const candidates = [
-    '/opt/homebrew/bin/ebook-meta',
-    '/usr/local/bin/ebook-meta',
-    '/Applications/calibre.app/Contents/MacOS/ebook-meta',
-  ];
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch {}
-  }
-  return null;
+function findEbookConvert() { return findCalibreBinary('ebook-convert'); }
+function findEbookMeta() { return findCalibreBinary('ebook-meta'); }
+
+// Returns the directory the user explicitly chose, or null if none / invalid.
+// Validation is per-read because `ebook-convert` could have been moved/deleted
+// since the path was saved.
+function getCalibreUserBinDir() {
+  const dir = loadSettings().calibreBinDir;
+  if (!dir || typeof dir !== 'string') return null;
+  try { if (!fs.statSync(dir).isDirectory()) return null; } catch { return null; }
+  return dir;
 }
 
 // Inject a cover into an existing MOBI/EPUB using Calibre's ebook-meta.
@@ -244,6 +255,42 @@ let server = null;
 let booksDir = null;
 let metaFile = null;
 let serverToken = null;
+let settingsFile = null;
+
+// ---------- Settings (small key/value store, separate from books.json) ----------
+//
+// The set of fields persisted here is deliberately tiny — anything bigger
+// (themes, library state, etc.) belongs in localStorage on the renderer side
+// or in books.json. Today the only entry is `calibreBinDir` for #29.
+
+let settingsCache = null;
+
+function loadSettings() {
+  if (settingsCache) return settingsCache;
+  if (!settingsFile) return (settingsCache = {});
+  try {
+    const raw = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    settingsCache = raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    settingsCache = {};
+  }
+  return settingsCache;
+}
+
+function saveSettings(patch) {
+  const next = { ...loadSettings(), ...patch };
+  // Drop nulls so calling saveSettings({ calibreBinDir: null }) actually
+  // forgets the key rather than persisting `null`.
+  for (const k of Object.keys(next)) {
+    if (next[k] == null) delete next[k];
+  }
+  settingsCache = next;
+  if (!settingsFile) return next;
+  const tmp = `${settingsFile}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, settingsFile);
+  return next;
+}
 
 // ---------- Book storage ----------
 
@@ -1365,6 +1412,7 @@ app.whenReady().then(() => {
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
+  settingsFile = path.join(userData, 'settings.json');
   serverToken = loadOrCreateServerToken(userData);
 
   startServer();
@@ -1460,6 +1508,60 @@ ipcMain.handle('server:info', () => {
     url: `http://${ip}:${PORT}/${serverToken}/`,
     running: !!server,
   };
+});
+
+// ---------- Calibre detection ----------
+//
+// `source` distinguishes a directory the user explicitly chose ("user") from
+// one we found by probing well-known locations ("auto"), so the settings UI
+// can offer to forget the saved path without also wiping an auto-detection.
+
+function calibreStatusPayload() {
+  const userDir = getCalibreUserBinDir();
+  const convert = findEbookConvert();
+  const meta = findEbookMeta();
+  if (!convert || !meta) {
+    return { found: false, binDir: null, source: null };
+  }
+  const binDir = path.dirname(convert);
+  return { found: true, binDir, source: userDir && binDir === userDir ? 'user' : 'auto' };
+}
+
+ipcMain.handle('calibre:status', () => calibreStatusPayload());
+
+ipcMain.handle('calibre:locate', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Locate Calibre’s ebook-convert',
+    message: 'Select the ebook-convert binary inside your Calibre install.',
+    properties: ['openFile'],
+    // macOS hides Unix executables behind a default extension filter; the
+    // empty filter forces the picker to show files without an extension.
+    filters: [{ name: 'ebook-convert', extensions: ['*'] }],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const picked = result.filePaths[0];
+  if (path.basename(picked) !== 'ebook-convert') {
+    return { error: 'Pick the ebook-convert binary itself, not a wrapper or alias.' };
+  }
+  try {
+    if (!fs.statSync(picked).isFile()) return { error: 'That path is not a file.' };
+  } catch (e) {
+    return { error: `Cannot read that file: ${e.message}` };
+  }
+  const binDir = path.dirname(picked);
+  // ebook-meta lives next to ebook-convert in every Calibre install we know
+  // of; refuse to save a directory that's missing it rather than discover
+  // half-broken Calibre at cover-extraction time.
+  if (!fs.existsSync(path.join(binDir, 'ebook-meta'))) {
+    return { error: 'That folder is missing ebook-meta — not a complete Calibre install.' };
+  }
+  saveSettings({ calibreBinDir: binDir });
+  return { ok: true, ...calibreStatusPayload() };
+});
+
+ipcMain.handle('calibre:clear', () => {
+  saveSettings({ calibreBinDir: null });
+  return calibreStatusPayload();
 });
 
 ipcMain.handle('open:external', async (_e, url) => {
