@@ -71,6 +71,7 @@ function renderBooks(books) {
       card.setAttribute('role', 'button');
       card.setAttribute('tabindex', '0');
       card.setAttribute('aria-label', b.author ? `${b.title} by ${b.author}` : b.title);
+      card.setAttribute('aria-pressed', b.id === selectedBookId ? 'true' : 'false');
       if (b.id === selectedBookId) card.classList.add('selected');
 
       const cover = document.createElement('div');
@@ -116,7 +117,11 @@ function renderBooks(books) {
 
       const select = () => {
         selectedBookId = b.id;
-        document.querySelectorAll('.book-card').forEach(c => c.classList.toggle('selected', c.dataset.id === b.id));
+        document.querySelectorAll('.book-card').forEach(c => {
+          const isSelected = c.dataset.id === b.id;
+          c.classList.toggle('selected', isSelected);
+          c.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        });
       };
 
       card.addEventListener('click', select);
@@ -129,6 +134,7 @@ function renderBooks(books) {
       // Keyboard activation: Enter selects, Space selects (matching click);
       // Enter when already selected opens the reader (mirrors dblclick).
       card.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
         if (e.key === 'Enter') {
           e.preventDefault();
           if (b.id === selectedBookId && window.airshelfReader) {
@@ -158,7 +164,12 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#btn-add')) return;
   if (selectedBookId !== null) {
     selectedBookId = null;
-    document.querySelectorAll('.book-card.selected, .spine.selected').forEach(c => c.classList.remove('selected'));
+    document.querySelectorAll('.book-card.selected, .spine.selected').forEach(c => {
+      c.classList.remove('selected');
+      if (c.classList.contains('book-card')) {
+        c.setAttribute('aria-pressed', 'false');
+      }
+    });
   }
 });
 

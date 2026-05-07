@@ -861,7 +861,7 @@ body {
   background: var(--toast-bg);
   color: #ffffff;
   padding: 10px 18px;
-  border-radius: var(--space-2);
+  border-radius: var(--radius-sm);
   font-size: var(--text-base);
   font-weight: 500;
   opacity: 0;
@@ -907,7 +907,7 @@ body {
 .modal-box input[type="url"] {
   width: 100%;
   padding: 10px var(--space-3);
-  border-radius: var(--space-2);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
   background: var(--bg);
   color: var(--text);
@@ -926,7 +926,7 @@ body {
 }
 .modal-btn {
   padding: var(--space-2) 14px;
-  border-radius: var(--space-2);
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   font-size: var(--text-base);
   font-weight: 500;
@@ -1019,7 +1019,7 @@ body {
   background: transparent;
   border: 1px solid var(--reader-btn-border);
   color: var(--text);
-  border-radius: var(--space-2);
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   font: inherit;
   font-size: var(--text-base);
