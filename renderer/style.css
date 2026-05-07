@@ -901,6 +901,21 @@ body {
   color: var(--text-sub);
 }
 
+/* Per-theme swatch colors. Lifted out of inline `style="..."` attributes
+ * so the static markup contains no inline styles. The CSP still allows
+ * 'unsafe-inline' for style-src because runtime DOM mutations (progress
+ * bar width, reader error fallback) need it. */
+.theme-swatch[data-theme="cloud"] .swatch-color { background: #f7f8fa; border-color: #dcdce3; }
+.theme-swatch[data-theme="cloud"] .swatch-dot { background: #2563eb; }
+.theme-swatch[data-theme="sand"] .swatch-color { background: #f5f0e8; border-color: #d6cab5; }
+.theme-swatch[data-theme="sand"] .swatch-dot { background: #b45309; }
+.theme-swatch[data-theme="slate"] .swatch-color { background: #1a1d23; border-color: #3e444d; }
+.theme-swatch[data-theme="slate"] .swatch-dot { background: #6d9fff; }
+.theme-swatch[data-theme="rose"] .swatch-color { background: #fdf2f4; border-color: #e4cdd2; }
+.theme-swatch[data-theme="rose"] .swatch-dot { background: #be185d; }
+.theme-swatch[data-theme="moss"] .swatch-color { background: #f0f4ef; border-color: #c4d1bf; }
+.theme-swatch[data-theme="moss"] .swatch-dot { background: #15803d; }
+
 .setting-label { font-weight: 600; }
 .setting-value { color: var(--text-sub); font-family: var(--font-mono); }
 
