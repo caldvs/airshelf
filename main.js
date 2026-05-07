@@ -1242,7 +1242,18 @@ function startServer() {
           const m = /bytes=(\d+)-(\d*)/.exec(range);
           if (m) {
             const start = parseInt(m[1], 10);
-            const end = m[2] ? parseInt(m[2], 10) : stat.size - 1;
+            const requestedEnd = m[2] ? parseInt(m[2], 10) : stat.size - 1;
+            // Reject ranges past EOF or backwards. Spec-compliant 416 with
+            // Content-Range: bytes */<size>.
+            if (start >= stat.size || requestedEnd < start) {
+              res.writeHead(416, {
+                'Content-Range': `bytes */${stat.size}`,
+                'Access-Control-Allow-Origin': 'null',
+              });
+              res.end();
+              return;
+            }
+            const end = Math.min(requestedEnd, stat.size - 1);
             headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
             headers['Content-Length'] = end - start + 1;
             res.writeHead(206, headers);
@@ -1507,7 +1518,7 @@ ipcMain.handle('books:showContextMenu', (e, id) => {
     {
       label: 'Copy download URL',
       click: () => {
-        const url = `http://${getLocalIP()}:${PORT}/download/${book.id}`;
+        const url = `http://${getLocalIP()}:${PORT}/${serverToken}/download/${book.id}`;
         require('electron').clipboard.writeText(url);
       },
     },

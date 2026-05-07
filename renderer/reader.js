@@ -57,6 +57,14 @@
     readerEl.classList.add('active');
     tocEl.classList.remove('open');
 
+    // Reset progress/locations state before swapping books — otherwise the
+    // previous book's locations stay marked ready while the new book's
+    // index is still building, producing junk percentages.
+    locationsReady = false;
+    currentLocation = null;
+    if (progressEl) progressEl.value = '0';
+    if (posEl) posEl.textContent = '—';
+
     // Tear down any previous rendition before swapping books.
     if (rendition) {
       try { rendition.destroy(); } catch (_) {}

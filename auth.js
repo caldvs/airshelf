@@ -43,11 +43,18 @@ function loadOrCreateServerToken(userData) {
   const tokenFile = path.join(userData, 'server-token');
   try {
     const t = fs.readFileSync(tokenFile, 'utf8').trim();
-    if (TOKEN_RE.test(t)) return t;
+    if (TOKEN_RE.test(t)) {
+      // The mode arg on writeFileSync only applies on create, so a file
+      // created earlier with looser perms (e.g. by an older version that
+      // forgot the mode) would stay loose. chmod every load to be sure.
+      try { fs.chmodSync(tokenFile, 0o600); } catch {}
+      return t;
+    }
     // Old format (e.g. legacy 32-hex) — regenerate.
   } catch {}
   const t = generatePronounceableToken();
   fs.writeFileSync(tokenFile, t, { mode: 0o600 });
+  try { fs.chmodSync(tokenFile, 0o600); } catch {}
   return t;
 }
 

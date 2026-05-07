@@ -100,6 +100,18 @@ describe('loadOrCreateServerToken', () => {
     const stat = fs.statSync(path.join(dir, 'server-token'));
     expect(stat.mode & 0o777).toBe(0o600);
   });
+
+  it('narrows perms on an existing valid token written with looser mode', () => {
+    // Simulate an older app version that wrote without `mode: 0o600`. The
+    // load path should chmod it down to 0600 even though the contents are
+    // already valid.
+    const tokenFile = path.join(dir, 'server-token');
+    fs.writeFileSync(tokenFile, 'badera', { mode: 0o644 });
+    expect(fs.statSync(tokenFile).mode & 0o777).toBe(0o644);
+    const t = loadOrCreateServerToken(dir);
+    expect(t).toBe('badera');
+    expect(fs.statSync(tokenFile).mode & 0o777).toBe(0o600);
+  });
 });
 
 describe('FailedAuthLimiter', () => {
