@@ -58,6 +58,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^12.8.0",
+    "bonjour-service": "^1.3.0",
     "epubjs": "^0.3.93",
     "jszip": "^3.10.1"
   }

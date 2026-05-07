@@ -290,9 +290,23 @@ window.addEventListener('drop', async (e) => {
 });
 
 // ---- Transfer view ----
+const serverUrlFallbackEl = document.getElementById('server-url-fallback');
+const urlFallbackEl = document.getElementById('url-fallback');
+
 async function loadServerInfo() {
   const info = await window.airshelf.serverInfo();
-  serverUrlEl.textContent = info.url;
+  // Prefer the mDNS hostname URL — the Kindle doesn't have to type a DHCP
+  // IP that drifts across reconnects. Some Kindle firmwares can't resolve
+  // .local, so the IP-based URL is shown as a fallback below.
+  if (info.mdnsUrl) {
+    serverUrlEl.textContent = info.mdnsUrl;
+    serverUrlFallbackEl.textContent = info.url;
+    urlFallbackEl.classList.remove('hidden');
+  } else {
+    serverUrlEl.textContent = info.url;
+    serverUrlFallbackEl.textContent = '';
+    urlFallbackEl.classList.add('hidden');
+  }
 }
 
 document.getElementById('btn-copy').addEventListener('click', () => {
