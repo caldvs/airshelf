@@ -6,6 +6,16 @@ const http = require('http');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
+const { hashFileSha1 } = require('./hash.js');
+const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
+
+// FIFO around every load-then-write of books.json. Concurrent addBooks
+// were racing each other: both load the same snapshot, both push their
+// own book, the second save overwrites the first. Serialising the
+// load+save bookends keeps both books in the file. Long file work
+// (hash, copy, Calibre conversion) runs OUTSIDE the queue so the
+// addManyBooks concurrency below isn't bottlenecked on this lock.
+const metaQueue = createSerialQueue();
 
 // Set the app name before anything else — this controls the bold label
 // in the macOS menu bar (which otherwise reads "Electron" during dev).
@@ -495,15 +505,17 @@ async function addBook(srcPath) {
     return { error: `Unsupported format: ${ext}` };
   }
 
-  // Hash the source file to detect duplicates
+  // Hash the source file to detect duplicates. Stream-hash so big PDFs/
+  // AZW3s don't load fully into memory + block the event loop.
   let srcHash = null;
   try {
-    const buf = fs.readFileSync(srcPath);
-    srcHash = crypto.createHash('sha1').update(buf).digest('hex');
+    srcHash = await hashFileSha1(srcPath);
   } catch (e) {
     return { error: `Could not read file: ${e.message}` };
   }
-  const existing = loadMeta().books.find(b => b.hash === srcHash);
+  const existing = await metaQueue(async () =>
+    loadMeta().books.find(b => b.hash === srcHash)
+  );
   if (existing) {
     return { duplicate: existing };
   }
@@ -628,7 +640,6 @@ async function addBook(srcPath) {
 
   const kindleSize = fs.statSync(path.join(booksDir, kindleFile)).size;
 
-  const meta = loadMeta();
   const book = {
     id,
     title,
@@ -648,9 +659,19 @@ async function addBook(srcPath) {
     exthNormalized,
     addedAt: Date.now(),
   };
-  meta.books.push(book);
-  saveMeta(meta);
-  return { book };
+  // Atomic load → re-check race → push → save. If we lose a race against
+  // another addBook for the same file, this book's disk artifacts get
+  // orphaned (small leak, user-visible only as stranded files in books/).
+  // Full fix lives in #3 once the in-memory cache lands.
+  return await metaQueue(async () => {
+    const meta = loadMeta();
+    if (meta.books.find(b => b.hash === srcHash)) {
+      return { duplicate: meta.books.find(b => b.hash === srcHash) };
+    }
+    meta.books.push(book);
+    saveMeta(meta);
+    return { book };
+  });
 }
 
 function deleteBook(id) {
@@ -684,8 +705,7 @@ async function migrateExistingBooks() {
     const srcPath = path.join(booksDir, srcFile);
     if (!fs.existsSync(srcPath)) continue;
     try {
-      const buf = fs.readFileSync(srcPath);
-      book.hash = crypto.createHash('sha1').update(buf).digest('hex');
+      book.hash = await hashFileSha1(srcPath);
       changed = true;
     } catch {}
   }
@@ -1430,7 +1450,12 @@ async function addManyBooks(paths) {
   const added = [];
   const errors = [];
   const duplicates = [];
-  for (const p of paths) {
+  // Bounded parallelism. Each addBook spawns 1–3 Calibre processes
+  // (convert, ebook-meta, sips); 2 in flight = up to ~6 child processes
+  // peak, enough to feel snappy on a 10-book drop without thrashing.
+  // Sequential await was sum-of-wall-times; this is roughly max-of-wall-
+  // times divided by the limit.
+  await mapWithConcurrency(paths, 2, async (p) => {
     try {
       const result = await addBook(p);
       if (result.book) added.push(result.book);
@@ -1439,7 +1464,7 @@ async function addManyBooks(paths) {
     } catch (e) {
       errors.push({ path: path.basename(p), error: e.message });
     }
-  }
+  });
   return { added, errors, duplicates };
 }
 
