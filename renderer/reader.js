@@ -49,13 +49,18 @@
     return `http://127.0.0.1:${info.port}/${info.token}/epub/${id}`;
   }
 
+  function setTocOpen(open) {
+    tocEl.classList.toggle('open', open);
+    tocBtn.setAttribute('aria-expanded', String(open));
+  }
+
   async function openReader(bookMeta) {
     if (!bookMeta || !bookMeta.id) return;
     currentBookId = bookMeta.id;
     titleEl.textContent = bookMeta.title || '';
     authorEl.textContent = [bookMeta.author, bookMeta.year].filter(Boolean).join(' · ');
     readerEl.classList.add('active');
-    tocEl.classList.remove('open');
+    setTocOpen(false);
 
     // Reset progress/locations state before swapping books — otherwise the
     // previous book's locations stay marked ready while the new book's
@@ -138,7 +143,9 @@
     rendition.on('keyup', handleKeyForward);
     rendition.on('keydown', handleKeyForward);
     rendition.on('click', () => {
-      if (tocEl.classList.contains('open')) tocEl.classList.remove('open');
+      if (tocEl.classList.contains('open')) {
+        setTocOpen(false);
+      }
     });
 
     // Build locations index for the progress slider — backgrounded; the
@@ -184,15 +191,17 @@
     const flatten = (items, depth) => {
       for (const item of items) {
         const li = document.createElement('li');
-        const a = document.createElement('a');
-        a.textContent = item.label.trim();
-        a.className = `toc-depth-${Math.min(depth, 2)}`;
-        a.addEventListener('click', (e) => {
-          e.preventDefault();
+        // Real <button> instead of <a> without href — focusable via Tab,
+        // activates on Enter/Space without extra handlers.
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = item.label.trim();
+        btn.className = `toc-depth-${Math.min(depth, 2)}`;
+        btn.addEventListener('click', () => {
           if (rendition) rendition.display(item.href);
-          tocEl.classList.remove('open');
+          setTocOpen(false);
         });
-        li.appendChild(a);
+        li.appendChild(btn);
         tocList.appendChild(li);
         if (item.subitems && item.subitems.length) flatten(item.subitems, depth + 1);
       }
@@ -223,7 +232,10 @@
   nextZone.addEventListener('click', () => rendition && rendition.next());
   fontUpBtn.addEventListener('click', () => setFontPct(getFontPct() + FONT_STEP));
   fontDownBtn.addEventListener('click', () => setFontPct(getFontPct() - FONT_STEP));
-  tocBtn.addEventListener('click', () => tocEl.classList.toggle('open'));
+  tocBtn.addEventListener('click', () => {
+    const open = !tocEl.classList.contains('open');
+    setTocOpen(open);
+  });
 
   progressEl.addEventListener('change', () => {
     if (!locationsReady || !book || !rendition) return;
