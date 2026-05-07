@@ -1681,11 +1681,12 @@ ipcMain.handle('library:backup', async () => {
       'manifest.json',
       Buffer.from(JSON.stringify(buildManifest({ bookCount: meta.books.length }), null, 2)),
     );
-    if (fs.existsSync(metaFile)) {
-      zip.addLocalFile(metaFile, '', 'books.json');
-    } else {
-      zip.addFile('books.json', Buffer.from(JSON.stringify({ books: [] }, null, 2)));
-    }
+    // Write the sanitized meta (filtered by loadMeta) rather than raw
+    // metaFile bytes. If books.json contains entries that loadMeta would
+    // drop (unsafe basename, etc.), the backup would otherwise capture
+    // the bad entries and fail validateBackup on restore — and
+    // manifest.bookCount would mismatch the archived books.json.
+    zip.addFile('books.json', Buffer.from(JSON.stringify(meta, null, 2)));
     if (fs.existsSync(booksDir)) zip.addLocalFolder(booksDir, 'books');
     zip.writeZip(result.filePath);
     const size = fs.statSync(result.filePath).size;
@@ -1784,20 +1785,43 @@ ipcMain.handle('library:restore', async () => {
     stagingDir = path.join(userData, `restore-staging-${Date.now()}`);
     const stagingBooks = path.join(stagingDir, 'books');
     fs.mkdirSync(stagingBooks, { recursive: true });
+    // extractEntryTo streams to disk instead of buffering the full
+    // decompressed file in memory via getData(). With multi-GB ebooks
+    // a single getData() call could OOM the main process even though
+    // the total-size quota above passed.
     for (const e of fileEntries) {
-      const out = path.join(stagingBooks, e.entryName.slice('books/'.length));
-      fs.writeFileSync(out, e.getData());
+      zip.extractEntryTo(e, stagingBooks, /*maintainEntryPath*/ false, /*overwrite*/ true);
     }
     fs.writeFileSync(path.join(stagingDir, 'books.json'), booksJsonEntry.getData());
 
-    // Swap. Two renames is not strictly atomic — a crash between them leaves
-    // an inconsistent pair. The .backup-<ts> aside files give the user a path
-    // to manual recovery; for a personal app this is the right trade-off.
+    // Swap with rollback. The four renames are not atomic as a group, but
+    // we track which steps succeeded so a mid-sequence failure can undo
+    // them and leave the library at its original paths. If rollback
+    // itself fails, the .backup-<ts> aside files remain for manual
+    // recovery and we surface explicit instructions in the error.
     const ts = Date.now();
-    if (fs.existsSync(booksDir)) fs.renameSync(booksDir, `${booksDir}.backup-${ts}`);
-    if (fs.existsSync(metaFile)) fs.renameSync(metaFile, `${metaFile}.backup-${ts}`);
-    fs.renameSync(stagingBooks, booksDir);
-    fs.renameSync(path.join(stagingDir, 'books.json'), metaFile);
+    const oldBooksAside = `${booksDir}.backup-${ts}`;
+    const oldMetaAside = `${metaFile}.backup-${ts}`;
+    const stagedBooksJson = path.join(stagingDir, 'books.json');
+    let stage = 0;
+    try {
+      if (fs.existsSync(booksDir)) { fs.renameSync(booksDir, oldBooksAside); stage = 1; }
+      if (fs.existsSync(metaFile)) { fs.renameSync(metaFile, oldMetaAside); stage = 2; }
+      fs.renameSync(stagingBooks, booksDir); stage = 3;
+      fs.renameSync(stagedBooksJson, metaFile); stage = 4;
+    } catch (swapErr) {
+      try {
+        if (stage >= 4) fs.renameSync(metaFile, stagedBooksJson);
+        if (stage >= 3) fs.renameSync(booksDir, stagingBooks);
+        if (stage >= 2) fs.renameSync(oldMetaAside, metaFile);
+        if (stage >= 1) fs.renameSync(oldBooksAside, booksDir);
+      } catch (rollbackErr) {
+        return {
+          error: `Restore swap failed (${swapErr.message}) and rollback also failed (${rollbackErr.message}). Recover manually: rename ${oldBooksAside} → ${path.basename(booksDir)} and ${oldMetaAside} → ${path.basename(metaFile)}.`,
+        };
+      }
+      return { error: `Restore swap failed: ${swapErr.message}. Library left intact.` };
+    }
     try { fs.rmdirSync(stagingDir); } catch {}
     stagingDir = null;
 

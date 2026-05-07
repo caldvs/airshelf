@@ -168,4 +168,14 @@ describe('validateBackup', () => {
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/missing referenced cover/i);
   });
+
+  it('rejects case-insensitive duplicates under books/', () => {
+    const r = validateBackup({
+      manifest: okManifest,
+      meta: { books: [{ ...safeBook, originalFile: null, cover: null }] },
+      fileNames: ['abc123.azw3', 'ABC123.azw3'],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/case-insensitive duplicate/i);
+  });
 });

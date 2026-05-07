@@ -52,6 +52,17 @@ function validateBackup({ manifest, meta, fileNames }) {
       return { ok: false, error: `Backup contains unsafe path: books/${name}` };
     }
   }
+  // macOS APFS/HFS+ default to case-insensitive: `Foo.epub` and `foo.epub`
+  // would clobber each other on extraction. Refuse the backup outright so
+  // restoring on macOS doesn't silently lose one of the pair.
+  const lcSeen = new Set();
+  for (const name of fileNames) {
+    const lc = name.toLowerCase();
+    if (lcSeen.has(lc)) {
+      return { ok: false, error: `Backup contains case-insensitive duplicate: books/${name}` };
+    }
+    lcSeen.add(lc);
+  }
   const fileSet = new Set(fileNames);
   // Path-traversal defence + cross-reference. Reject any metadata entry
   // whose file/originalFile/cover isn't a single safe basename (mirrors the

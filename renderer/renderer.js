@@ -338,8 +338,9 @@ if (btnRestore) {
       const r = await window.airshelf.restoreLibrary();
       if (r && r.canceled) return;
       if (r && r.ok) {
+        // Don't call refresh() here — main process emits books:changed
+        // during restore and onBooksChanged below already refreshes.
         showToast(`Restored ${r.bookCount} book${r.bookCount === 1 ? '' : 's'}`, 'success');
-        refresh();
       } else {
         showToast(`Restore failed: ${(r && r.error) || 'unknown error'}`, 'error');
       }
