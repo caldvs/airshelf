@@ -9,6 +9,7 @@
   const closeBtn = document.getElementById('reader-close');
   const fontUpBtn = document.getElementById('reader-font-up');
   const fontDownBtn = document.getElementById('reader-font-down');
+  const themeBtn = document.getElementById('reader-theme-btn');
   const tocBtn = document.getElementById('reader-toc-btn');
   const tocEl = document.getElementById('reader-toc');
   const tocList = document.getElementById('reader-toc-list');
@@ -25,10 +26,39 @@
   let resizeTimer = null;
 
   const FONT_KEY = 'airshelf-reader-font';
+  const THEME_KEY = 'airshelf-reader-theme';
   const LOC_KEY = (id) => `airshelf-reader-loc:${id}`;
   const FONT_MIN = 80;
   const FONT_MAX = 180;
   const FONT_STEP = 10;
+
+  const READER_THEMES = {
+    light: { body: { background: '#ffffff', color: '#1a1d23' } },
+    dark: { body: { background: '#1a1d23', color: '#e4e6ea' } },
+  };
+
+  // Resolve initial theme: explicit override > app theme (slate=dark) > prefers-color-scheme.
+  function resolveDefaultTheme() {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === 'light' || stored === 'dark') return stored;
+    const appTheme = document.documentElement.getAttribute('data-theme');
+    if (appTheme === 'slate') return 'dark';
+    if (!appTheme && window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark';
+    return 'light';
+  }
+
+  function applyReaderTheme(name) {
+    document.body.classList.toggle('reader-dark', name === 'dark');
+    if (themeBtn) themeBtn.setAttribute('aria-pressed', String(name === 'dark'));
+    if (rendition) {
+      try { rendition.themes.select(name); } catch (_) {}
+    }
+  }
+
+  function setReaderTheme(name) {
+    localStorage.setItem(THEME_KEY, name);
+    applyReaderTheme(name);
+  }
 
   function getFontPct() {
     const v = parseInt(localStorage.getItem(FONT_KEY) || '110', 10);
@@ -112,10 +142,13 @@
     });
 
     rendition.themes.default({
-      'body': { 'padding': '0 !important', 'background': 'transparent !important' },
+      'body': { 'padding': '0 !important' },
       'p': { 'line-height': '1.6 !important' },
       'img': { 'max-width': '100% !important', 'height': 'auto !important' },
     });
+    rendition.themes.register('light', READER_THEMES.light);
+    rendition.themes.register('dark', READER_THEMES.dark);
+    applyReaderTheme(resolveDefaultTheme());
     rendition.themes.fontSize(`${getFontPct()}%`);
 
     const savedCfi = localStorage.getItem(LOC_KEY(bookMeta.id));
@@ -232,6 +265,10 @@
   nextZone.addEventListener('click', () => rendition && rendition.next());
   fontUpBtn.addEventListener('click', () => setFontPct(getFontPct() + FONT_STEP));
   fontDownBtn.addEventListener('click', () => setFontPct(getFontPct() - FONT_STEP));
+  themeBtn.addEventListener('click', () => {
+    const next = themeBtn.getAttribute('aria-pressed') === 'true' ? 'light' : 'dark';
+    setReaderTheme(next);
+  });
   tocBtn.addEventListener('click', () => {
     const open = !tocEl.classList.contains('open');
     setTocOpen(open);
