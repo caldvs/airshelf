@@ -411,18 +411,29 @@ async function refreshCalibreStatus() {
 }
 
 async function calibreLocateFlow() {
-  const r = await window.airshelf.calibreLocate();
-  if (!r) return;
-  if (r.canceled) return;
+  let r;
+  try {
+    r = await window.airshelf.calibreLocate();
+  } catch (e) {
+    showToast(`Locate failed: ${e.message}`, 'error');
+    return;
+  }
+  if (!r || r.canceled) return;
   if (r.error) { showToast(r.error, 'error'); return; }
   showToast('Calibre saved', 'success');
   refreshCalibreStatus();
 }
 
+async function openCalibreDownload() {
+  try {
+    await window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
+  } catch (e) {
+    showToast(`Could not open browser: ${e.message}`, 'error');
+  }
+}
+
 document.getElementById('calibre-banner-locate').addEventListener('click', calibreLocateFlow);
-document.getElementById('calibre-banner-get').addEventListener('click', () => {
-  window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
-});
+document.getElementById('calibre-banner-get').addEventListener('click', openCalibreDownload);
 document.getElementById('calibre-banner-dismiss').addEventListener('click', () => {
   localStorage.setItem(CALIBRE_BANNER_DISMISS_KEY, '1');
   calibreBanner.classList.add('hidden');
@@ -430,12 +441,15 @@ document.getElementById('calibre-banner-dismiss').addEventListener('click', () =
 document.getElementById('calibre-redetect').addEventListener('click', refreshCalibreStatus);
 document.getElementById('calibre-locate').addEventListener('click', calibreLocateFlow);
 document.getElementById('calibre-clear').addEventListener('click', async () => {
-  await window.airshelf.calibreClear();
+  try {
+    await window.airshelf.calibreClear();
+  } catch (e) {
+    showToast(`Forget failed: ${e.message}`, 'error');
+    return;
+  }
   refreshCalibreStatus();
 });
-document.getElementById('calibre-get').addEventListener('click', () => {
-  window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
-});
+document.getElementById('calibre-get').addEventListener('click', openCalibreDownload);
 
 // ---- Init ----
 refresh();

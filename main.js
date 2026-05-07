@@ -287,7 +287,10 @@ function loadSettings() {
   if (!settingsFile) return (settingsCache = {});
   try {
     const raw = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    settingsCache = raw && typeof raw === 'object' ? raw : {};
+    // Plain object only — reject arrays (typeof [] === 'object') and null.
+    // A malformed/tampered settings.json shouldn't poison saveSettings, which
+    // spreads into a fresh object expecting string keys.
+    settingsCache = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   } catch {
     settingsCache = {};
   }
