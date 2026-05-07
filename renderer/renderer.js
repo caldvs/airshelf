@@ -370,9 +370,11 @@ document.querySelectorAll('.theme-swatch').forEach(sw => {
 
 // ---- Calibre detection ----
 //
-// The banner above the shelf is dismissable per-version via localStorage so
-// users who genuinely don't need Calibre (Kindle-native formats only) aren't
-// nagged on every launch. The Settings panel always reflects current status.
+// The banner above the shelf is dismissable via localStorage so users who
+// genuinely don't need Calibre (Kindle-native formats only) aren't nagged on
+// every launch. Any transition to "found" — auto or user — clears the dismiss
+// flag, so future breakage re-surfaces the banner. The Settings panel always
+// reflects current status regardless.
 
 const CALIBRE_DOWNLOAD_URL = 'https://calibre-ebook.com/download_osx';
 const CALIBRE_BANNER_DISMISS_KEY = 'airshelf-calibre-banner-dismissed';
@@ -394,6 +396,9 @@ async function refreshCalibreStatus() {
     calibreStatusPathEl.textContent = s.binDir || '';
     calibreBanner.classList.add('hidden');
     calibreClearBtn.classList.toggle('hidden', s.source !== 'user');
+    // Clear the dismiss flag on every found-state read, not just after a
+    // successful Locate, so an auto-detected Calibre arrival also resets it.
+    localStorage.removeItem(CALIBRE_BANNER_DISMISS_KEY);
   } else {
     calibreStatusEl.textContent = 'Not found';
     calibreStatusPathEl.textContent = '';
@@ -410,9 +415,6 @@ async function calibreLocateFlow() {
   if (!r) return;
   if (r.canceled) return;
   if (r.error) { showToast(r.error, 'error'); return; }
-  // Locating successfully resets the dismissed state — if Calibre breaks
-  // again later we want the banner to come back.
-  localStorage.removeItem(CALIBRE_BANNER_DISMISS_KEY);
   showToast('Calibre saved', 'success');
   refreshCalibreStatus();
 }

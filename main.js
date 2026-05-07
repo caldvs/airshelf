@@ -60,18 +60,35 @@ const AUTO_CALIBRE_BIN_DIRS = [
   '/Applications/calibre.app/Contents/MacOS',
 ];
 
-function findCalibreBinary(name) {
+function isExistingFile(p) {
+  try { return fs.statSync(p).isFile(); } catch { return false; }
+}
+
+// Probe order: user-saved dir first, then well-known auto locations. Both
+// binaries must come from the same directory — a userDir that has only
+// ebook-convert (e.g. partially broken install) shouldn't silently let
+// ebook-meta fall through to /opt/homebrew/bin and produce a half-resolved
+// "found" state where binDir doesn't actually own both tools.
+function findCalibreBinDir() {
   const userDir = getCalibreUserBinDir();
   const dirs = userDir ? [userDir, ...AUTO_CALIBRE_BIN_DIRS] : AUTO_CALIBRE_BIN_DIRS;
   for (const dir of dirs) {
-    const p = path.join(dir, name);
-    try { if (fs.existsSync(p)) return p; } catch {}
+    if (
+      isExistingFile(path.join(dir, 'ebook-convert')) &&
+      isExistingFile(path.join(dir, 'ebook-meta'))
+    ) return dir;
   }
   return null;
 }
 
-function findEbookConvert() { return findCalibreBinary('ebook-convert'); }
-function findEbookMeta() { return findCalibreBinary('ebook-meta'); }
+function findEbookConvert() {
+  const d = findCalibreBinDir();
+  return d ? path.join(d, 'ebook-convert') : null;
+}
+function findEbookMeta() {
+  const d = findCalibreBinDir();
+  return d ? path.join(d, 'ebook-meta') : null;
+}
 
 // Returns the directory the user explicitly chose, or null if none / invalid.
 // Validation is per-read because `ebook-convert` could have been moved/deleted
@@ -1518,41 +1535,35 @@ ipcMain.handle('server:info', () => {
 
 function calibreStatusPayload() {
   const userDir = getCalibreUserBinDir();
-  const convert = findEbookConvert();
-  const meta = findEbookMeta();
-  if (!convert || !meta) {
-    return { found: false, binDir: null, source: null };
-  }
-  const binDir = path.dirname(convert);
+  const binDir = findCalibreBinDir();
+  if (!binDir) return { found: false, binDir: null, source: null };
   return { found: true, binDir, source: userDir && binDir === userDir ? 'user' : 'auto' };
 }
 
 ipcMain.handle('calibre:status', () => calibreStatusPayload());
 
 ipcMain.handle('calibre:locate', async () => {
+  // No `filters` array — macOS NSOpenPanel without filters lets the user
+  // pick a no-extension binary like ebook-convert. A filter of ['*'] hides
+  // extensionless files on some macOS versions.
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Locate Calibre’s ebook-convert',
     message: 'Select the ebook-convert binary inside your Calibre install.',
     properties: ['openFile'],
-    // macOS hides Unix executables behind a default extension filter; the
-    // empty filter forces the picker to show files without an extension.
-    filters: [{ name: 'ebook-convert', extensions: ['*'] }],
   });
   if (result.canceled || !result.filePaths[0]) return { canceled: true };
   const picked = result.filePaths[0];
   if (path.basename(picked) !== 'ebook-convert') {
     return { error: 'Pick the ebook-convert binary itself, not a wrapper or alias.' };
   }
-  try {
-    if (!fs.statSync(picked).isFile()) return { error: 'That path is not a file.' };
-  } catch (e) {
-    return { error: `Cannot read that file: ${e.message}` };
+  if (!isExistingFile(picked)) {
+    return { error: 'That path is not a regular file.' };
   }
   const binDir = path.dirname(picked);
   // ebook-meta lives next to ebook-convert in every Calibre install we know
   // of; refuse to save a directory that's missing it rather than discover
   // half-broken Calibre at cover-extraction time.
-  if (!fs.existsSync(path.join(binDir, 'ebook-meta'))) {
+  if (!isExistingFile(path.join(binDir, 'ebook-meta'))) {
     return { error: 'That folder is missing ebook-meta — not a complete Calibre install.' };
   }
   saveSettings({ calibreBinDir: binDir });
