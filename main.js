@@ -571,7 +571,11 @@ async function fetchOpenLibraryDescription(doc) {
   }
 }
 
-async function addBook(srcPath) {
+// `displayName` lets the /upload route preserve the user's filename for
+// title/author fallback even though the actual srcPath is a randomised
+// staging file. Defaults to the srcPath's basename so existing callers
+// (drag-drop, IPC, calibre-import) keep their current behaviour.
+async function addBook(srcPath, displayName = path.basename(srcPath)) {
   const ext = path.extname(srcPath).toLowerCase();
   if (!SUPPORTED_EXTS.includes(ext)) {
     return { error: `Unsupported format: ${ext}` };
@@ -619,8 +623,10 @@ async function addBook(srcPath) {
     coverFile = `${id}.cover`;
     await resizeCoverInPlace(coverCandidate);
   }
-  // Fall back to the filename and clean it up
-  const rawBase = path.basename(srcPath, ext);
+  // Fall back to the filename and clean it up. We strip from displayName
+  // (not srcPath) so the /upload route's randomised staging filename
+  // doesn't leak into the title.
+  const rawBase = path.basename(displayName, ext);
   if (!title) title = rawBase;
   title = cleanTitle(title);
   if (!author) author = guessAuthorFromFilename(rawBase);
@@ -716,7 +722,7 @@ async function addBook(srcPath) {
     title,
     author,
     year,
-    originalName: path.basename(srcPath),
+    originalName: displayName,
     originalFile: originalFileName,
     file: kindleFile,          // what we serve to the Kindle
     cover: coverFile,
@@ -1402,7 +1408,10 @@ function startServer() {
         if (aborted) return; // 413 already sent
         let result;
         try {
-          result = await addBook(tmpPath);
+          // Pass the validated X-Filename so the user's original name flows
+          // into title-fallback / book.originalName, even though the on-disk
+          // path is the randomised staging file.
+          result = await addBook(tmpPath, filename);
         } catch (e) {
           result = { error: e.message };
         } finally {
