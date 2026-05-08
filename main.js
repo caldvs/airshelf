@@ -38,7 +38,7 @@ app.setAboutPanelOptions({
 const PORT = parseInt(process.env.PORT, 10) || 6790;
 
 // Files the Kindle experimental browser can download directly
-const { normalizeKindleMetadata } = require('./inject-asin.js');
+const { normalizeKindleMetadata } = require('./out/integrations/inject-asin.js');
 const {
   titlesMatch,
   cleanTitle,
