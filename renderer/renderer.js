@@ -49,6 +49,255 @@ function readReaderProgress(id) {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
 }
 
+// Series with this many books or more get collapsed into a single stack
+// card. A series of one is just a regular book — no point in a stack.
+const SERIES_STACK_MIN = 2;
+
+// Tracks which series stacks are currently expanded. Module-level so the
+// state survives a re-render (e.g. when the books list is reloaded after
+// an add). Series with no books left after a delete naturally fall out.
+const expandedSeries = new Set();
+
+function buildBookCard(b) {
+  // Card is a div (it contains block-level children which <button> can't
+  // hold) but presents as a button to AT: role + tabindex + keyboard
+  // activation handler. This was previously a plain <div> with click
+  // handlers — unreachable without a mouse.
+  const card = document.createElement('div');
+  card.className = 'book-card';
+  card.dataset.id = b.id;
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  card.setAttribute('aria-label', b.author ? `${b.title} by ${b.author}` : b.title);
+  card.setAttribute('aria-pressed', b.id === selectedBookId ? 'true' : 'false');
+  if (b.id === selectedBookId) card.classList.add('selected');
+
+  const cover = document.createElement('div');
+  cover.className = 'book-cover' + (b.coverUrl ? '' : ' placeholder');
+  if (b.coverUrl) {
+    const img = document.createElement('img');
+    img.src = b.coverUrl;
+    img.draggable = false;
+    // Decorative — the card already has aria-label with the title.
+    // Setting alt="" keeps screen readers from announcing the filename.
+    img.alt = '';
+    img.loading = 'lazy';
+    img.width = 110;
+    img.height = 156;
+    cover.appendChild(img);
+  } else {
+    cover.textContent = b.title;
+  }
+
+  const pct = readReaderProgress(b.id);
+  if (pct !== null) {
+    const done = pct >= 100;
+    if (done) cover.classList.add('finished');
+    const bar = document.createElement('div');
+    bar.className = 'cover-progress';
+    bar.setAttribute('aria-hidden', 'true');
+    const fill = document.createElement('div');
+    fill.className = 'cover-progress-fill' + (done ? ' done' : '');
+    fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    bar.appendChild(fill);
+    cover.appendChild(bar);
+    const label = document.createElement('div');
+    label.className = 'cover-progress-label' + (done ? ' done' : '');
+    label.textContent = done ? '✓ Done' : `${pct}%`;
+    cover.appendChild(label);
+  }
+
+  const title = document.createElement('div');
+  title.className = 'book-title';
+  title.textContent = b.title;
+
+  card.append(cover, title);
+
+  if (b.author) {
+    const author = document.createElement('div');
+    author.className = 'book-author';
+    author.textContent = b.year ? `${b.author} · ${b.year}` : b.author;
+    card.append(author);
+  } else if (b.year) {
+    const yr = document.createElement('div');
+    yr.className = 'book-author';
+    yr.textContent = String(b.year);
+    card.append(yr);
+  }
+
+  // Series badge — small, italic, sits between the author/year and the
+  // size line. We only render when the series field is non-null;
+  // seriesIndex is optional ("Boxed Set" rows still match nothing today
+  // but a future relaxed regex might extract series without an index).
+  if (b.series) {
+    const seriesEl = document.createElement('div');
+    seriesEl.className = 'book-series';
+    seriesEl.textContent = b.seriesIndex != null
+      ? `${b.series} #${b.seriesIndex}`
+      : b.series;
+    card.append(seriesEl);
+  }
+
+  const size = document.createElement('div');
+  size.className = 'book-size';
+  const convertedLabel = b.converted ? ` · ${b.sourceExt.toUpperCase()}→AZW3` : '';
+  size.textContent = `${b.sizeHuman}${convertedLabel}`;
+  card.append(size);
+
+  const select = () => {
+    selectedBookId = b.id;
+    document.querySelectorAll('.book-card').forEach(c => {
+      const isSelected = c.dataset.id === b.id;
+      c.classList.toggle('selected', isSelected);
+      c.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+    });
+  };
+
+  card.addEventListener('click', select);
+
+  card.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    if (window.airshelfReader) window.airshelfReader.open(b);
+  });
+
+  // Keyboard activation: Enter selects, Space selects (matching click);
+  // Enter when already selected opens the reader (mirrors dblclick).
+  card.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (b.id === selectedBookId && window.airshelfReader) {
+        window.airshelfReader.open(b);
+      } else {
+        select();
+      }
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      select();
+    }
+  });
+
+  card.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    select();
+    window.airshelf.showContextMenu(b.id);
+  });
+
+  return card;
+}
+
+// Build the closed-stack card for a series — single tile that shows the
+// first book's cover, the series name, and a count badge. Click expands
+// to show every book in the series in place.
+function buildSeriesStackCard(seriesName, booksInSeries) {
+  // Sort by seriesIndex so the stack shows the first book first; books
+  // without an index sink to the bottom in addedAt order.
+  const sorted = [...booksInSeries].sort((a, b) => {
+    if (a.seriesIndex == null && b.seriesIndex == null) return a.addedAt - b.addedAt;
+    if (a.seriesIndex == null) return 1;
+    if (b.seriesIndex == null) return -1;
+    return a.seriesIndex - b.seriesIndex;
+  });
+  const first = sorted[0];
+
+  const card = document.createElement('div');
+  card.className = 'book-card series-stack';
+  card.dataset.series = seriesName;
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  card.setAttribute('aria-label', `Series: ${seriesName}, ${sorted.length} books`);
+  card.setAttribute('aria-expanded', 'false');
+
+  // Re-use the cover treatment from buildBookCard but without the per-book
+  // progress badge — a stack doesn't have a single reading progress.
+  const cover = document.createElement('div');
+  cover.className = 'book-cover' + (first.coverUrl ? '' : ' placeholder');
+  if (first.coverUrl) {
+    const img = document.createElement('img');
+    img.src = first.coverUrl;
+    img.draggable = false;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.width = 110;
+    img.height = 156;
+    cover.appendChild(img);
+  } else {
+    cover.textContent = first.title;
+  }
+  // Count badge sits over the top-right of the cover so the stack looks
+  // visually distinct from a regular book card at a glance.
+  const badge = document.createElement('div');
+  badge.className = 'series-count-badge';
+  badge.textContent = String(sorted.length);
+  badge.setAttribute('aria-hidden', 'true');
+  cover.appendChild(badge);
+
+  const title = document.createElement('div');
+  title.className = 'book-title';
+  title.textContent = seriesName;
+
+  const sub = document.createElement('div');
+  sub.className = 'book-author';
+  sub.textContent = `${sorted.length} books`;
+
+  card.append(cover, title, sub);
+
+  const toggle = () => {
+    expandedSeries.add(seriesName);
+    rerenderShelf();
+  };
+  card.addEventListener('click', toggle);
+  card.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  return card;
+}
+
+// Build the "collapse" header that lets the user re-pack a series stack
+// after expanding it. Sat in the same grid slot as a book card.
+function buildSeriesCollapseHeader(seriesName, count) {
+  const card = document.createElement('div');
+  card.className = 'book-card series-collapse';
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  card.setAttribute('aria-label', `Collapse series ${seriesName}`);
+  card.setAttribute('aria-expanded', 'true');
+
+  const inner = document.createElement('div');
+  inner.className = 'series-collapse-inner';
+
+  const title = document.createElement('div');
+  title.className = 'series-collapse-title';
+  title.textContent = seriesName;
+
+  const sub = document.createElement('div');
+  sub.className = 'series-collapse-sub';
+  sub.textContent = `Collapse · ${count} books`;
+
+  inner.append(title, sub);
+  card.append(inner);
+
+  const toggle = () => {
+    expandedSeries.delete(seriesName);
+    rerenderShelf();
+  };
+  card.addEventListener('click', toggle);
+  card.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  return card;
+}
+
 function renderBooks(books, opts = {}) {
   shelfEl.innerHTML = '';
 
@@ -69,133 +318,69 @@ function renderBooks(books, opts = {}) {
     return;
   }
 
-  for (const b of books) {
-      // Card is a div (it contains block-level children which <button> can't
-      // hold) but presents as a button to AT: role + tabindex + keyboard
-      // activation handler. This was previously a plain <div> with click
-      // handlers — unreachable without a mouse.
-      const card = document.createElement('div');
-      card.className = 'book-card';
-      card.dataset.id = b.id;
-      card.setAttribute('role', 'button');
-      card.setAttribute('tabindex', '0');
-      card.setAttribute('aria-label', b.author ? `${b.title} by ${b.author}` : b.title);
-      card.setAttribute('aria-pressed', b.id === selectedBookId ? 'true' : 'false');
-      if (b.id === selectedBookId) card.classList.add('selected');
-
-      const cover = document.createElement('div');
-      cover.className = 'book-cover' + (b.coverUrl ? '' : ' placeholder');
-      if (b.coverUrl) {
-        const img = document.createElement('img');
-        img.src = b.coverUrl;
-        img.draggable = false;
-        // Decorative — the card already has aria-label with the title.
-        // Setting alt="" keeps screen readers from announcing the filename.
-        img.alt = '';
-        img.loading = 'lazy';
-        img.width = 110;
-        img.height = 156;
-        cover.appendChild(img);
-      } else {
-        cover.textContent = b.title;
-      }
-
-      const pct = readReaderProgress(b.id);
-      if (pct !== null) {
-        const done = pct >= 100;
-        if (done) cover.classList.add('finished');
-        const bar = document.createElement('div');
-        bar.className = 'cover-progress';
-        bar.setAttribute('aria-hidden', 'true');
-        const fill = document.createElement('div');
-        fill.className = 'cover-progress-fill' + (done ? ' done' : '');
-        fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-        bar.appendChild(fill);
-        cover.appendChild(bar);
-        const label = document.createElement('div');
-        label.className = 'cover-progress-label' + (done ? ' done' : '');
-        label.textContent = done ? '✓ Done' : `${pct}%`;
-        cover.appendChild(label);
-      }
-
-      const title = document.createElement('div');
-      title.className = 'book-title';
-      title.textContent = b.title;
-
-      card.append(cover, title);
-
-      if (b.author) {
-        const author = document.createElement('div');
-        author.className = 'book-author';
-        author.textContent = b.year ? `${b.author} · ${b.year}` : b.author;
-        card.append(author);
-      } else if (b.year) {
-        const yr = document.createElement('div');
-        yr.className = 'book-author';
-        yr.textContent = String(b.year);
-        card.append(yr);
-      }
-
-      // Series badge — small, italic, sits between the author/year and the
-      // size line. We only render when the series field is non-null;
-      // seriesIndex is optional ("Boxed Set" rows still match nothing today
-      // but a future relaxed regex might extract series without an index).
-      if (b.series) {
-        const seriesEl = document.createElement('div');
-        seriesEl.className = 'book-series';
-        seriesEl.textContent = b.seriesIndex != null
-          ? `${b.series} #${b.seriesIndex}`
-          : b.series;
-        card.append(seriesEl);
-      }
-
-      const size = document.createElement('div');
-      size.className = 'book-size';
-      const convertedLabel = b.converted ? ` · ${b.sourceExt.toUpperCase()}→AZW3` : '';
-      size.textContent = `${b.sizeHuman}${convertedLabel}`;
-      card.append(size);
-
-      const select = () => {
-        selectedBookId = b.id;
-        document.querySelectorAll('.book-card').forEach(c => {
-          const isSelected = c.dataset.id === b.id;
-          c.classList.toggle('selected', isSelected);
-          c.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-        });
-      };
-
-      card.addEventListener('click', select);
-
-      card.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        if (window.airshelfReader) window.airshelfReader.open(b);
-      });
-
-      // Keyboard activation: Enter selects, Space selects (matching click);
-      // Enter when already selected opens the reader (mirrors dblclick).
-      card.addEventListener('keydown', (e) => {
-        if (e.repeat) return;
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (b.id === selectedBookId && window.airshelfReader) {
-            window.airshelfReader.open(b);
-          } else {
-            select();
-          }
-        } else if (e.key === ' ') {
-          e.preventDefault();
-          select();
-        }
-      });
-
-      card.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        select();
-        window.airshelf.showContextMenu(b.id);
-      });
-
-      shelfEl.appendChild(card);
+  // Group books by series for stacking. Search interactions disable
+  // stacking (caller passes opts.flat) so the user sees flat matches
+  // regardless of which series the books belong to.
+  if (opts.flat) {
+    for (const b of books) shelfEl.appendChild(buildBookCard(b));
+    return;
   }
+
+  const seriesGroups = new Map();
+  const standalone = [];
+  for (const b of books) {
+    if (b.series) {
+      const arr = seriesGroups.get(b.series) || [];
+      arr.push(b);
+      seriesGroups.set(b.series, arr);
+    } else {
+      standalone.push(b);
+    }
+  }
+
+  // Walk the original `books` order. The first time we hit a series,
+  // emit the stack (closed) or the collapse-header + member books
+  // (open). Subsequent books in the same series are skipped because
+  // they were already emitted by the first hit.
+  const emitted = new Set();
+  for (const b of books) {
+    if (!b.series) {
+      shelfEl.appendChild(buildBookCard(b));
+      continue;
+    }
+    if (emitted.has(b.series)) continue;
+    emitted.add(b.series);
+    const group = seriesGroups.get(b.series);
+    if (group.length < SERIES_STACK_MIN) {
+      // Series of one — render as a regular card, no stack chrome.
+      shelfEl.appendChild(buildBookCard(group[0]));
+      continue;
+    }
+    if (expandedSeries.has(b.series)) {
+      shelfEl.appendChild(buildSeriesCollapseHeader(b.series, group.length));
+      const sorted = [...group].sort((a, x) => {
+        if (a.seriesIndex == null && x.seriesIndex == null) return a.addedAt - x.addedAt;
+        if (a.seriesIndex == null) return 1;
+        if (x.seriesIndex == null) return -1;
+        return a.seriesIndex - x.seriesIndex;
+      });
+      for (const sb of sorted) shelfEl.appendChild(buildBookCard(sb));
+    } else {
+      shelfEl.appendChild(buildSeriesStackCard(b.series, group));
+    }
+  }
+  // standalone is unused here — books were already emitted in original
+  // order above. Kept the variable for readability of the grouping pass.
+  void standalone;
+}
+
+// Re-render the shelf with the current `allBooks` snapshot + active query.
+// Used by the series stack/collapse handlers below — they mutate
+// expandedSeries and need the shelf to redraw with that new state.
+// applyBookView() is defined further down (set up after `allBooks` /
+// `searchQuery` exist) but is in scope by the time a user click can fire.
+function rerenderShelf() {
+  applyBookView();
 }
 
 // Click outside any card clears selection
@@ -250,6 +435,10 @@ function applyBookView() {
   const opts = q && filtered.length === 0 && allBooks.length > 0
     ? { emptyMessage: `No matches for “${searchQuery.trim()}”.` }
     : {};
+  // While searching, render flat: the user is looking for a specific book,
+  // not browsing series, and hiding matches inside a closed stack would be
+  // confusing. Series badges still appear on individual cards.
+  if (q) opts.flat = true;
   renderBooks(filtered, opts);
   updateSearchStatus(q, filtered.length);
 }
