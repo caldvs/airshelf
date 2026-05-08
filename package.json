@@ -61,7 +61,6 @@
       "titles.js",
       "preload.js",
       "inject-asin.js",
-      "auth.js",
       "pair.js",
       "safety.js",
       "lib/**/*",
