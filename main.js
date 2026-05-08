@@ -572,7 +572,11 @@ async function fetchOpenLibraryDescription(doc) {
   }
 }
 
-async function addBook(srcPath) {
+// `displayName` lets the /upload route preserve the user's filename for
+// title/author fallback even though the actual srcPath is a randomised
+// staging file. Defaults to the srcPath's basename so existing callers
+// (drag-drop, IPC, calibre-import) keep their current behaviour.
+async function addBook(srcPath, displayName = path.basename(srcPath)) {
   const ext = path.extname(srcPath).toLowerCase();
   if (!SUPPORTED_EXTS.includes(ext)) {
     return { error: `Unsupported format: ${ext}` };
@@ -620,8 +624,13 @@ async function addBook(srcPath) {
     coverFile = `${id}.cover`;
     await resizeCoverInPlace(coverCandidate);
   }
-  // Fall back to the filename and clean it up.
-  const rawBase = path.basename(srcPath, ext);
+  // Fall back to the filename and clean it up. We strip from displayName
+  // (not srcPath) so the /upload route's randomised staging filename
+  // doesn't leak into the title. Use path.extname(displayName) for the
+  // strip so a mixed-case extension (e.g. "BOOK.EPUB") is removed even
+  // though the lowercased `ext` we computed earlier doesn't match —
+  // path.basename's second argument is case-sensitive.
+  const rawBase = path.basename(displayName, path.extname(displayName));
   if (!title) title = rawBase;
   // Extract series before cleanTitle strips the parenthetical — extractSeries
   // returns the cleaned title plus any `(Series #N)` info found in the raw form.
@@ -734,7 +743,7 @@ async function addBook(srcPath) {
     year,
     series,
     seriesIndex,
-    originalName: path.basename(srcPath),
+    originalName: displayName,
     originalFile: originalFileName,
     file: kindleFile,          // what we serve to the Kindle
     cover: coverFile,
@@ -1035,6 +1044,14 @@ function getLocalIP() {
     }
   }
   return '127.0.0.1';
+}
+
+// Loopback gate for write-side endpoints (#37 /upload). The server listens
+// on 0.0.0.0 so the Kindle can read; we don't want to expose mutating
+// routes on the LAN under just the ~20-bit token.
+function isLoopback(addr) {
+  if (typeof addr !== 'string') return false;
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
 function humanSize(bytes) {
@@ -1356,6 +1373,109 @@ function startServer() {
         res.writeHead(auth.status); res.end('Not found'); return;
       }
       const subPath = auth.subPath;
+      // CLI / future-extension upload (#37). Same token as the rest of the
+      // server, but only honoured for POST and only from loopback — the
+      // server itself listens on 0.0.0.0 for the Kindle's read traffic, but
+      // a write surface protected only by the ~20-bit token is too thin a
+      // perimeter for LAN exposure. Body is the raw bytes of one ebook;
+      // the original filename comes in via X-Filename so the saved file
+      // can pick up the right extension and (via cleanTitle) a sensible
+      // fallback title. Cap is generous (1 GB) — large PDFs are common,
+      // but we won't accept multi-GB blobs by accident.
+      if (subPath === '/upload' && req.method === 'POST') {
+        if (!isLoopback(req.socket.remoteAddress)) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not found');
+          return;
+        }
+        const filename = (req.headers['x-filename'] || '').toString();
+        if (!filename || filename.length > 255 || !isSafeBasename(filename)) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Invalid or missing X-Filename header.');
+          return;
+        }
+        // Reject by extension before streaming the body. addBook checks the
+        // same allowlist, but only after we'd have written up to MAX_UPLOAD_BYTES
+        // to disk — wasteful for an obviously unsupported file.
+        if (!SUPPORTED_EXTS.includes(path.extname(filename).toLowerCase())) {
+          res.writeHead(415, { 'Content-Type': 'text/plain' });
+          res.end('Unsupported file format.');
+          return;
+        }
+        const declaredLength = parseInt(req.headers['content-length'], 10);
+        const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+          res.writeHead(413, { 'Content-Type': 'text/plain' });
+          res.end('Upload too large.');
+          return;
+        }
+        // Tmp filename keeps the *extension* so addBook's format probe and
+        // cleanTitle work, but drops the user-supplied basename — which
+        // could leak metadata into a world-readable temp dir, and (even
+        // after isSafeBasename) be long enough to ENAMETOOLONG on some
+        // filesystems. The unique random hex is the new stem; mode 0o600
+        // restricts read access to this user.
+        const ext = path.extname(filename);
+        const tmpPath = path.join(
+          os.tmpdir(),
+          `airshelf-upload-${crypto.randomBytes(8).toString('hex')}${ext}`,
+        );
+        const out = fs.createWriteStream(tmpPath, { mode: 0o600 });
+        let received = 0;
+        let aborted = false;
+        req.on('data', (chunk) => {
+          if (aborted) return;
+          received += chunk.length;
+          if (received > MAX_UPLOAD_BYTES) {
+            aborted = true;
+            out.destroy();
+            try { req.destroy(); } catch {}
+            try { fs.unlinkSync(tmpPath); } catch {}
+            res.writeHead(413, { 'Content-Type': 'text/plain' });
+            res.end('Upload exceeded size limit mid-stream.');
+          }
+        });
+        try {
+          await new Promise((resolve, reject) => {
+            req.pipe(out);
+            out.on('finish', resolve);
+            out.on('error', reject);
+            req.on('error', reject);
+            // 'aborted' fires when the client closes mid-upload before
+            // 'end'. Without this the promise never settles and the
+            // handler hangs forever, leaving a partial tmp file behind.
+            req.on('aborted', () => reject(new Error('client aborted upload')));
+          });
+        } catch (e) {
+          try { fs.unlinkSync(tmpPath); } catch {}
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            // Match the leak-suppression posture used elsewhere in the
+            // request handler (see the catch blocks at the bottom).
+            res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Upload write failed: ${e.message}`);
+          }
+          return;
+        }
+        if (aborted) return; // 413 already sent
+        let result;
+        try {
+          // Pass the validated X-Filename so the user's original name flows
+          // into title-fallback / book.originalName, even though the on-disk
+          // path is the randomised staging file.
+          result = await addBook(tmpPath, filename);
+        } catch (e) {
+          result = { error: e.message };
+        } finally {
+          try { fs.unlinkSync(tmpPath); } catch {}
+        }
+        if (result.book && mainWindow) mainWindow.webContents.send('books:changed');
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        res.end(JSON.stringify(result));
+        return;
+      }
       if (subPath === '/screenshot') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
