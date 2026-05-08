@@ -365,6 +365,42 @@ if (btnRestore) {
   });
 }
 
+// ---- Calibre import ----
+const btnCalibreImport = document.getElementById('btn-calibre-import');
+if (btnCalibreImport && window.airshelf.importFromCalibre) {
+  // Stream per-book progress into the busy overlay so a multi-hundred
+  // book library doesn't look frozen. Main throttles via the natural
+  // pace of addBook (file copy + Calibre conversion), so no extra
+  // debouncing needed on this end.
+  if (window.airshelf.onImportProgress) {
+    window.airshelf.onImportProgress(({ done, total }) => {
+      setBusy(`Importing from Calibre — ${done}/${total}`);
+    });
+  }
+  btnCalibreImport.addEventListener('click', async () => {
+    btnCalibreImport.disabled = true;
+    setBusy('Reading Calibre library…');
+    try {
+      const r = await window.airshelf.importFromCalibre();
+      if (r && r.canceled) return;
+      if (r && r.error) {
+        showToast(r.error, 'error');
+        return;
+      }
+      const added = (r.added || []).length;
+      const dupes = (r.duplicates || []).length;
+      const errs = (r.errors || []).length;
+      const parts = [`Imported ${added} of ${r.total}`];
+      if (dupes) parts.push(`${dupes} already in library`);
+      if (errs) parts.push(`${errs} failed`);
+      showToast(parts.join(' · '), errs ? 'warn' : 'success');
+    } finally {
+      setBusy(null);
+      btnCalibreImport.disabled = false;
+    }
+  });
+}
+
 // Listen for background migrations / changes from main
 if (window.airshelf.onBooksChanged) {
   window.airshelf.onBooksChanged(() => {
