@@ -301,12 +301,20 @@ async function loadServerInfo() {
   // Bare URL the user can bookmark on their Kindle once paired — derived
   // here rather than coming back from the IPC payload because it's just
   // a trim of info.url.
-  pairBareUrlEl.textContent = `http://${info.ip}:${info.port}/`;
+  if (pairBareUrlEl) pairBareUrlEl.textContent = `http://${info.ip}:${info.port}/`;
+}
+
+async function copyToClipboard(text, successMsg) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(successMsg, 'success');
+  } catch (e) {
+    showToast(`Copy failed: ${e.message}`, 'error');
+  }
 }
 
 document.getElementById('btn-copy').addEventListener('click', () => {
-  navigator.clipboard.writeText(serverUrlEl.textContent);
-  showToast('Copied', 'success');
+  copyToClipboard(serverUrlEl.textContent, 'Copied');
 });
 
 // ---- Backup / restore ----
@@ -371,6 +379,9 @@ let pairTtlTimer = null;
 let pairCurrentExpiresAt = 0;
 
 async function refreshPairCode({ forceRotate = false } = {}) {
+  // If the Send view markup ever loses these ids (or in a future test
+  // harness without the DOM), bail rather than null-deref'ing.
+  if (!pairUrlEl || !pairTtlEl) return;
   let info;
   try {
     info = forceRotate
@@ -405,12 +416,14 @@ function startPairTtlTimer() {
   pairTtlTimer = setInterval(tick, 1000);
 }
 
-pairRotateBtn.addEventListener('click', () => refreshPairCode({ forceRotate: true }));
-
-pairUrlEl.addEventListener('click', () => {
-  navigator.clipboard.writeText(pairUrlEl.textContent);
-  showToast('Pair URL copied', 'success');
-});
+if (pairRotateBtn) {
+  pairRotateBtn.addEventListener('click', () => refreshPairCode({ forceRotate: true }));
+}
+if (pairUrlEl) {
+  pairUrlEl.addEventListener('click', () => {
+    copyToClipboard(pairUrlEl.textContent, 'Pair URL copied');
+  });
+}
 
 // Listen for background migrations / changes from main
 if (window.airshelf.onBooksChanged) {

@@ -795,12 +795,18 @@ body {
   border-radius: var(--radius-sm);
   cursor: copy;
   user-select: all;
+  /* button reset — strip native chrome so it presents as the code-style
+     pill it used to be, while staying keyboard-focusable + Enter/Space. */
+  border: 1px solid transparent;
+  text-align: left;
+  font-weight: inherit;
   /* Truncate gracefully on narrow windows; the full value is selectable. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pair-shortlink-url:hover { background: var(--bg-elev); }
+.pair-shortlink-url:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .pair-ttl {
   font-family: var(--font-mono);
   font-size: var(--text-sm);

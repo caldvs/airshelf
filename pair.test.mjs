@@ -46,10 +46,21 @@ describe('PairCodeStore', () => {
 
   it('issue() rotates — only the most recent code is valid', () => {
     const clock = fakeClock();
-    const s = new PairCodeStore({ ttlMs: 60_000, now: clock.now });
+    // Inject a deterministic generator so the "two issued codes differ"
+    // assertion can never flake on the (1 / 22^4) random collision case.
+    // All chars must be in PAIR_ALPHABET — 'ABCD' would fail because B is
+    // intentionally banned (looks like 8) and same for G in EFGH. Picking
+    // codes from the unambiguous set keeps the regex check happy.
+    const queue = ['ACDE', 'FHJK'];
+    const s = new PairCodeStore({
+      ttlMs: 60_000,
+      now: clock.now,
+      generator: () => queue.shift(),
+    });
     const a = s.issue();
     const b = s.issue();
-    expect(a).not.toBe(b); // overwhelmingly likely; if it ever flakes we'll learn something
+    expect(a).toBe('ACDE');
+    expect(b).toBe('FHJK');
     expect(s.consume(a)).toBe(false);
     expect(s.consume(b)).toBe(true);
   });

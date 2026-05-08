@@ -29,9 +29,12 @@ function generatePairCode() {
 }
 
 class PairCodeStore {
-  constructor({ ttlMs = PAIR_TTL_MS, now = Date.now } = {}) {
+  // `generator` is injectable for deterministic tests; defaults to the
+  // crypto-backed random generator used in production.
+  constructor({ ttlMs = PAIR_TTL_MS, now = Date.now, generator = generatePairCode } = {}) {
     this.ttlMs = ttlMs;
     this.now = now;
+    this.generator = generator;
     // code (uppercased) → expiresAt
     this.codes = new Map();
   }
@@ -42,7 +45,7 @@ class PairCodeStore {
   // server's exposure to brute-force attempts during the TTL.
   issue() {
     this.codes.clear();
-    const code = generatePairCode();
+    const code = this.generator();
     this.codes.set(code, this.now() + this.ttlMs);
     return code;
   }
@@ -59,9 +62,11 @@ class PairCodeStore {
   }
 
   // Single-use: returns true and consumes if the code matches an unexpired
-  // entry; false otherwise. Constant-time comparison against each candidate
-  // to avoid leaking which code (if any) is active via timing — though with
-  // at most one code in the map this is mostly principle.
+  // entry; false otherwise. Best-effort timing-safety on the value compare
+  // (we use timingSafeEqual rather than ===), but the regex / type checks
+  // above short-circuit on malformed input — those callers can already be
+  // distinguished by timing. The defence here is the per-IP rate limiter
+  // and the 60-second TTL, not constant-time validation.
   consume(input) {
     if (typeof input !== 'string') return false;
     const upper = input.toUpperCase();
