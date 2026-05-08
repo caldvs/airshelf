@@ -1475,11 +1475,46 @@ app.whenReady().then(() => {
   startServer();
   createWindow();
   migrateExistingBooks().catch(e => console.error('migration error', e));
+  scheduleAutoUpdates();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// Auto-update via electron-updater + GitHub Releases. The packaged app
+// checks once on launch and every 24h after, downloads in the background,
+// and prompts the user to relaunch when a build is ready. No-op when run
+// via `npm start` because electron-updater throws on dev because there's
+// no signed code to compare against.
+function scheduleAutoUpdates() {
+  if (!app.isPackaged) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (e) {
+    console.warn('[updater] electron-updater missing, skipping:', e.message);
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('error', (e) => console.warn('[updater] error:', e?.message || e));
+  autoUpdater.on('update-available', (info) => {
+    console.log('[updater] update available:', info?.version);
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[updater] update downloaded:', info?.version);
+  });
+  autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+    console.warn('[updater] initial check failed:', e?.message || e);
+  });
+  // Re-check daily for long-lived sessions.
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((e) => {
+      console.warn('[updater] periodic check failed:', e?.message || e);
+    });
+  }, 24 * 60 * 60 * 1000);
+}
 
 app.on('window-all-closed', () => {
   stopMdns();
