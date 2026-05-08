@@ -341,10 +341,11 @@ const {
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handlePairRequest } = require('./route-pair.js');
+const { validateUploadRequest, MAX_UPLOAD_BYTES } = require('./route-upload.js');
 const { humanSize, escapeHtml, getLocalIP } = require('./utils.js');
 const { handleCoverRequest } = require('./route-cover.js');
+const { handleEpubRequest } = require('./route-epub.js');
 const { renderShelfHtml } = require('./route-index.js');
-const { parseRangeHeader } = require('./route-range.js');
 const { prepareDownloadResponse } = require('./route-download.js');
 
 // Scan the Cookie header for any host-only `airshelf_token` value matching the
@@ -1261,40 +1262,31 @@ function startServer() {
         return;
       }
 
-      if (subPath === '/upload' && req.method === 'POST') {
-        if (!isLoopback(req.socket.remoteAddress)) {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end('Not found');
+      if (subPath === '/upload') {
+        // All synchronous validation lives in route-upload.js so it can be
+        // unit-tested without booting the server. The streaming/disk-write
+        // half stays here because it's tightly coupled to req/res streams
+        // and the addBook closure.
+        const validation = validateUploadRequest({
+          method: req.method,
+          remoteAddress: req.socket.remoteAddress,
+          headers: req.headers,
+          supportedExtensions: SUPPORTED_EXTS,
+          isSafeBasename,
+          isLoopback,
+        });
+        if (!validation.ok) {
+          res.writeHead(validation.status, { 'Content-Type': 'text/plain' });
+          res.end(validation.message);
           return;
         }
-        const filename = (req.headers['x-filename'] || '').toString();
-        if (!filename || filename.length > 255 || !isSafeBasename(filename)) {
-          res.writeHead(400, { 'Content-Type': 'text/plain' });
-          res.end('Invalid or missing X-Filename header.');
-          return;
-        }
-        // Reject by extension before streaming the body. addBook checks the
-        // same allowlist, but only after we'd have written up to MAX_UPLOAD_BYTES
-        // to disk — wasteful for an obviously unsupported file.
-        if (!SUPPORTED_EXTS.includes(path.extname(filename).toLowerCase())) {
-          res.writeHead(415, { 'Content-Type': 'text/plain' });
-          res.end('Unsupported file format.');
-          return;
-        }
-        const declaredLength = parseInt(req.headers['content-length'], 10);
-        const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
-        if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
-          res.writeHead(413, { 'Content-Type': 'text/plain' });
-          res.end('Upload too large.');
-          return;
-        }
+        const { filename, ext } = validation;
         // Tmp filename keeps the *extension* so addBook's format probe and
         // cleanTitle work, but drops the user-supplied basename — which
         // could leak metadata into a world-readable temp dir, and (even
         // after isSafeBasename) be long enough to ENAMETOOLONG on some
         // filesystems. The unique random hex is the new stem; mode 0o600
         // restricts read access to this user.
-        const ext = path.extname(filename);
         const tmpPath = path.join(
           os.tmpdir(),
           `airshelf-upload-${crypto.randomBytes(8).toString('hex')}${ext}`,
@@ -1416,58 +1408,25 @@ function startServer() {
         pipeStreamToResponse(dlStream, req, res);
         return;
       }
-      // Streams the original .epub for the in-app reader (epubjs needs the
-      // raw zip with proper MIME). The reader fetches via loopback, but the
-      // route is reachable from LAN with the token like every other route —
-      // CORS is set to 'null' (matches file:// origin) and Range support
-      // keeps epubjs happy on big books. To restrict to loopback, check
-      // req.socket.remoteAddress for 127.0.0.1 / ::1 / ::ffff:127.0.0.1.
-      const epubMatch = subPath.match(/^\/epub\/([a-f0-9]+)$/);
-      if (epubMatch) {
-        const id = epubMatch[1];
-        const book = listBooks().find((b) => b.id === id);
-        if (!book) {
-          res.writeHead(404);
-          res.end('Not found');
-          return;
-        }
-        let epubPath;
-        try {
-          epubPath = await getOrBuildReaderEpub(book);
-        } catch (e) {
-          res.writeHead(500, { 'Access-Control-Allow-Origin': 'null' });
-          res.end(`Build failed: ${e.message}`);
-          return;
-        }
-        if (!epubPath || !fs.existsSync(epubPath)) {
-          res.writeHead(404, { 'Access-Control-Allow-Origin': 'null' });
-          res.end('Missing');
-          return;
-        }
-        const stat = fs.statSync(epubPath);
-        const baseHeaders = {
-          'Content-Type': 'application/epub+zip',
-          'Accept-Ranges': 'bytes',
-          'Cache-Control': 'private, max-age=3600',
-          // The reader iframe loads from file:// (Origin: null). 'null'
-          // matches that without opening to arbitrary websites the way '*' did.
-          'Access-Control-Allow-Origin': 'null',
-        };
-        const range = parseRangeHeader(req.headers.range, stat.size);
-        if (range && range.status === 416) {
-          res.writeHead(416, { ...baseHeaders, ...range.headers });
+      // keeps epubjs happy on big books. The decision logic lives in
+      // route-epub.js so it can be tested without booting an HTTP server.
+      const epubDecision = await handleEpubRequest({
+        subPath,
+        books: listBooks(),
+        getReaderEpubPath: getOrBuildReaderEpub,
+        rangeHeader: req.headers.range,
+      });
+      if (epubDecision) {
+        res.writeHead(epubDecision.status, epubDecision.headers || {});
+        if (epubDecision.stream) {
+          const { path: streamPath, start, end } = epubDecision.stream;
+          const opts = (start !== undefined) ? { start, end } : {};
+          pipeStreamToResponse(fs.createReadStream(streamPath, opts), req, res);
+        } else if (epubDecision.body !== undefined) {
+          res.end(epubDecision.body);
+        } else {
           res.end();
-          return;
         }
-        if (range && range.status === 206) {
-          res.writeHead(206, { ...baseHeaders, ...range.headers });
-          const rangeStream = fs.createReadStream(epubPath, { start: range.start, end: range.end });
-          pipeStreamToResponse(rangeStream, req, res);
-          return;
-        }
-        res.writeHead(200, { ...baseHeaders, 'Content-Length': stat.size });
-        const epubStream = fs.createReadStream(epubPath);
-        pipeStreamToResponse(epubStream, req, res);
         return;
       }
       res.writeHead(404);
@@ -1478,7 +1437,7 @@ function startServer() {
       // process console and surface the message to the client (only in
       // non-production; production builds shouldn't leak internals).
       console.error('[server] request failed', req.method, req.url, '\n', e);
-      res.writeHead(500);
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
     }
   });
