@@ -13,7 +13,7 @@ import { rewriteExthSection, buildExthRecord } from './inject-asin.js';
 //   0x80  4 bytes  EXTH-present flag (set by rewriteExthSection on success;
 //                  the function only ever sets it, never clears it)
 function makeRecord0(exthRecords) {
-  const MOBI_LEN = 0x84;        // include the EXTH flag at 0x80
+  const MOBI_LEN = 0x84; // include the EXTH flag at 0x80
   const exthBody = Buffer.concat(exthRecords.map(({ type, data }) => buildExthRecord(type, data)));
   const exthHeader = Buffer.alloc(12);
   exthHeader.write('EXTH', 0, 'ascii');
@@ -57,11 +57,11 @@ describe('rewriteExthSection', () => {
     const input = makeRecord0([{ type: 100, data: 'Some Author' }]);
     const { patched } = rewriteExthSection(input, 0);
     const records = readExthRecords(patched);
-    const cdetype = records.filter(r => r.type === 501);
+    const cdetype = records.filter((r) => r.type === 501);
     expect(cdetype).toHaveLength(1);
     expect(cdetype[0].data).toBe('PDOC');
     // Pre-existing record preserved.
-    expect(records.find(r => r.type === 100)).toEqual({ type: 100, data: 'Some Author' });
+    expect(records.find((r) => r.type === 100)).toEqual({ type: 100, data: 'Some Author' });
   });
 
   it('replaces a single 501 with a single 501=PDOC', () => {
@@ -71,7 +71,7 @@ describe('rewriteExthSection', () => {
     ]);
     const { patched } = rewriteExthSection(input, 0);
     const records = readExthRecords(patched);
-    const cdetype = records.filter(r => r.type === 501);
+    const cdetype = records.filter((r) => r.type === 501);
     expect(cdetype).toHaveLength(1);
     expect(cdetype[0].data).toBe('PDOC');
   });
@@ -85,11 +85,11 @@ describe('rewriteExthSection', () => {
     ]);
     const { patched } = rewriteExthSection(input, 0);
     const records = readExthRecords(patched);
-    const cdetype = records.filter(r => r.type === 501);
+    const cdetype = records.filter((r) => r.type === 501);
     expect(cdetype).toHaveLength(1);
     expect(cdetype[0].data).toBe('PDOC');
     // Non-501/504 records survive.
-    expect(records.find(r => r.type === 100)).toEqual({ type: 100, data: 'Some Author' });
+    expect(records.find((r) => r.type === 100)).toEqual({ type: 100, data: 'Some Author' });
   });
 
   it('drops 504 (AmazonId) records', () => {
@@ -99,7 +99,7 @@ describe('rewriteExthSection', () => {
     ]);
     const { patched } = rewriteExthSection(input, 0);
     const records = readExthRecords(patched);
-    expect(records.find(r => r.type === 504)).toBeUndefined();
+    expect(records.find((r) => r.type === 504)).toBeUndefined();
   });
 
   it('is idempotent: rewrite(rewrite(x)) has the same shape as rewrite(x)', () => {
@@ -111,7 +111,7 @@ describe('rewriteExthSection', () => {
     const once = rewriteExthSection(input, 0).patched;
     const twice = rewriteExthSection(once, 0).patched;
     expect(readExthRecords(twice)).toEqual(readExthRecords(once));
-    expect(readExthRecords(twice).filter(r => r.type === 501)).toHaveLength(1);
+    expect(readExthRecords(twice).filter((r) => r.type === 501)).toHaveLength(1);
   });
 
   it('sets the EXTH-present flag on the MOBI header', () => {

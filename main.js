@@ -44,8 +44,23 @@ const { titlesMatch, cleanTitle, extractSeries, guessAuthorFromFilename } = requ
 const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us
 const CONVERTIBLE_EXTS = [
-  '.epub', '.azw3', '.fb2', '.fbz', '.lit', '.lrf', '.pdb', '.pdf',
-  '.rtf', '.docx', '.odt', '.html', '.htm', '.htmlz', '.chm', '.cbz', '.cbr',
+  '.epub',
+  '.azw3',
+  '.fb2',
+  '.fbz',
+  '.lit',
+  '.lrf',
+  '.pdb',
+  '.pdf',
+  '.rtf',
+  '.docx',
+  '.odt',
+  '.html',
+  '.htm',
+  '.htmlz',
+  '.chm',
+  '.cbz',
+  '.cbr',
 ];
 const SUPPORTED_EXTS = [...KINDLE_NATIVE_EXTS, ...CONVERTIBLE_EXTS];
 
@@ -63,7 +78,11 @@ const AUTO_CALIBRE_BIN_DIRS = [
 ];
 
 function isExistingFile(p) {
-  try { return fs.statSync(p).isFile(); } catch { return false; }
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 // Probe order: user-saved dir first, then well-known auto locations. Both
@@ -78,7 +97,8 @@ function findCalibreBinDir() {
     if (
       isExistingFile(path.join(dir, 'ebook-convert')) &&
       isExistingFile(path.join(dir, 'ebook-meta'))
-    ) return dir;
+    )
+      return dir;
   }
   return null;
 }
@@ -98,7 +118,11 @@ function findEbookMeta() {
 function getCalibreUserBinDir() {
   const dir = loadSettings().calibreBinDir;
   if (!dir || typeof dir !== 'string') return null;
-  try { if (!fs.statSync(dir).isDirectory()) return null; } catch { return null; }
+  try {
+    if (!fs.statSync(dir).isDirectory()) return null;
+  } catch {
+    return null;
+  }
   return dir;
 }
 
@@ -110,16 +134,21 @@ function setCoverMetadata(filePath, coverPath) {
     if (!bin || !fs.existsSync(filePath) || !fs.existsSync(coverPath)) {
       return resolve(false);
     }
-    execFile(bin, [filePath, '--cover', coverPath], {
-      timeout: 60000,
-      maxBuffer: 10 * 1024 * 1024,
-    }, (err, stdout, stderr) => {
-      if (err) {
-        console.warn(`ebook-meta cover inject failed for ${filePath}:`, stderr || err.message);
-        return resolve(false);
-      }
-      resolve(true);
-    });
+    execFile(
+      bin,
+      [filePath, '--cover', coverPath],
+      {
+        timeout: 60000,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (err, stdout, stderr) => {
+        if (err) {
+          console.warn(`ebook-meta cover inject failed for ${filePath}:`, stderr || err.message);
+          return resolve(false);
+        }
+        resolve(true);
+      },
+    );
   });
 }
 
@@ -130,18 +159,23 @@ function extractCoverViaCalibre(filePath, outPath) {
   return new Promise((resolve) => {
     const bin = findEbookMeta();
     if (!bin || !fs.existsSync(filePath)) return resolve(false);
-    execFile(bin, [filePath, `--get-cover=${outPath}`], {
-      timeout: 60000,
-      maxBuffer: 10 * 1024 * 1024,
-    }, (err) => {
-      if (err) return resolve(false);
-      try {
-        if (fs.existsSync(outPath) && fs.statSync(outPath).size > 1000) {
-          return resolve(true);
-        }
-      } catch {}
-      resolve(false);
-    });
+    execFile(
+      bin,
+      [filePath, `--get-cover=${outPath}`],
+      {
+        timeout: 60000,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (err) => {
+        if (err) return resolve(false);
+        try {
+          if (fs.existsSync(outPath) && fs.statSync(outPath).size > 1000) {
+            return resolve(true);
+          }
+        } catch {}
+        resolve(false);
+      },
+    );
   });
 }
 
@@ -157,23 +191,46 @@ function resizeCoverInPlace(filePath, maxDim = 500) {
     try {
       const size = fs.statSync(filePath).size;
       if (size < 60 * 1024) return resolve(false); // already small
-    } catch { return resolve(false); }
+    } catch {
+      return resolve(false);
+    }
 
     const tmp = `${filePath}.resize.tmp`;
-    execFile('/usr/bin/sips', ['-Z', String(maxDim), '-s', 'format', 'jpeg', '-s', 'formatOptions', '80', filePath, '--out', tmp], { timeout: 30000 }, (err) => {
-      if (err) {
-        try { fs.unlinkSync(tmp); } catch {}
-        return resolve(false);
-      }
-      try {
-        fs.renameSync(tmp, filePath);
-        resolve(true);
-      } catch (renameErr) {
-        try { fs.unlinkSync(tmp); } catch {}
-        console.warn('resizeCoverInPlace: rename failed', renameErr.message);
-        resolve(false);
-      }
-    });
+    execFile(
+      '/usr/bin/sips',
+      [
+        '-Z',
+        String(maxDim),
+        '-s',
+        'format',
+        'jpeg',
+        '-s',
+        'formatOptions',
+        '80',
+        filePath,
+        '--out',
+        tmp,
+      ],
+      { timeout: 30000 },
+      (err) => {
+        if (err) {
+          try {
+            fs.unlinkSync(tmp);
+          } catch {}
+          return resolve(false);
+        }
+        try {
+          fs.renameSync(tmp, filePath);
+          resolve(true);
+        } catch (renameErr) {
+          try {
+            fs.unlinkSync(tmp);
+          } catch {}
+          console.warn('resizeCoverInPlace: rename failed', renameErr.message);
+          resolve(false);
+        }
+      },
+    );
   });
 }
 
@@ -186,21 +243,22 @@ function convertToAzw3(srcPath, outPath, coverPath = null) {
   return new Promise((resolve, reject) => {
     const bin = findEbookConvert();
     if (!bin) return reject(new Error('Calibre ebook-convert not found. Install Calibre.'));
-    const args = [
-      srcPath,
-      outPath,
-      '--output-profile', 'kindle_pw3',
-    ];
+    const args = [srcPath, outPath, '--output-profile', 'kindle_pw3'];
     if (coverPath && fs.existsSync(coverPath)) {
       args.push('--cover', coverPath);
     }
-    execFile(bin, args, {
-      timeout: 300000,
-      maxBuffer: 10 * 1024 * 1024,
-    }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(stderr || err.message));
-      resolve();
-    });
+    execFile(
+      bin,
+      args,
+      {
+        timeout: 300000,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (err, stdout, stderr) => {
+        if (err) return reject(new Error(stderr || err.message));
+        resolve();
+      },
+    );
   });
 }
 
@@ -214,13 +272,18 @@ function convertToEpub(srcPath, outPath) {
   return new Promise((resolve, reject) => {
     const bin = findEbookConvert();
     if (!bin) return reject(new Error('Calibre ebook-convert not found. Install Calibre.'));
-    execFile(bin, [srcPath, outPath, '--no-default-epub-cover'], {
-      timeout: 300000,
-      maxBuffer: 10 * 1024 * 1024,
-    }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(stderr || err.message));
-      resolve();
-    });
+    execFile(
+      bin,
+      [srcPath, outPath, '--no-default-epub-cover'],
+      {
+        timeout: 300000,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (err, stdout, stderr) => {
+        if (err) return reject(new Error(stderr || err.message));
+        resolve();
+      },
+    );
   });
 }
 
@@ -257,7 +320,9 @@ async function getOrBuildReaderEpub(book) {
       fs.renameSync(tmp, cached);
       return cached;
     } finally {
-      try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {}
+      try {
+        if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+      } catch {}
       epubBuildPromises.delete(book.id);
     }
   })();
@@ -267,7 +332,12 @@ async function getOrBuildReaderEpub(book) {
 
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
 const { buildManifest, validateBackup } = require('./backup.js');
-const { tokensMatch, loadOrCreateServerToken, rotateServerToken, FailedAuthLimiter } = require('./auth.js');
+const {
+  tokensMatch,
+  loadOrCreateServerToken,
+  rotateServerToken,
+  FailedAuthLimiter,
+} = require('./auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handlePairRequest } = require('./route-pair.js');
@@ -357,7 +427,7 @@ function loadMeta() {
   // and served over HTTP must be a single path component. A tampered
   // books.json with `book.file = "../../etc/passwd"` would otherwise leak
   // arbitrary disk contents through /download or /epub.
-  const books = raw.books.filter(b => {
+  const books = raw.books.filter((b) => {
     if (!b || !isSafeBasename(b.file)) {
       console.warn('books.json: dropping entry with unsafe `file`:', b && b.file);
       return false;
@@ -394,13 +464,13 @@ function extractEpubCover(epubPath, outPath) {
     const entries = zip.getEntries();
 
     // Look in container.xml for OPF path
-    const containerEntry = entries.find(e => e.entryName === 'META-INF/container.xml');
+    const containerEntry = entries.find((e) => e.entryName === 'META-INF/container.xml');
     if (!containerEntry) return false;
     const containerXml = containerEntry.getData().toString('utf8');
     const opfMatch = containerXml.match(/full-path="([^"]+)"/);
     if (!opfMatch) return false;
     const opfPath = opfMatch[1];
-    const opfEntry = entries.find(e => e.entryName === opfPath);
+    const opfEntry = entries.find((e) => e.entryName === opfPath);
     if (!opfEntry) return false;
     const opfXml = opfEntry.getData().toString('utf8');
     const opfDir = path.posix.dirname(opfPath);
@@ -416,19 +486,22 @@ function extractEpubCover(epubPath, outPath) {
     }
     // Fallback: item with properties="cover-image"
     if (!coverHref) {
-      const m = opfXml.match(/<item[^>]+properties="cover-image"[^>]+href="([^"]+)"/)
-        || opfXml.match(/<item[^>]+href="([^"]+)"[^>]+properties="cover-image"/);
+      const m =
+        opfXml.match(/<item[^>]+properties="cover-image"[^>]+href="([^"]+)"/) ||
+        opfXml.match(/<item[^>]+href="([^"]+)"[^>]+properties="cover-image"/);
       if (m) coverHref = m[1];
     }
     // Last fallback: any image with "cover" in href
     if (!coverHref) {
-      const m = opfXml.match(/<item[^>]+href="([^"]*cover[^"]*\.(?:jpe?g|png))"[^>]*media-type="image\//i);
+      const m = opfXml.match(
+        /<item[^>]+href="([^"]*cover[^"]*\.(?:jpe?g|png))"[^>]*media-type="image\//i,
+      );
       if (m) coverHref = m[1];
     }
     if (!coverHref) return false;
 
     const fullCoverPath = opfDir && opfDir !== '.' ? path.posix.join(opfDir, coverHref) : coverHref;
-    const coverEntry = entries.find(e => e.entryName === fullCoverPath);
+    const coverEntry = entries.find((e) => e.entryName === fullCoverPath);
     if (!coverEntry) return false;
 
     fs.writeFileSync(outPath, coverEntry.getData());
@@ -442,11 +515,14 @@ function extractEpubMeta(epubPath) {
   try {
     const zip = new AdmZip(epubPath);
     const entries = zip.getEntries();
-    const containerEntry = entries.find(e => e.entryName === 'META-INF/container.xml');
+    const containerEntry = entries.find((e) => e.entryName === 'META-INF/container.xml');
     if (!containerEntry) return {};
-    const opfMatch = containerEntry.getData().toString('utf8').match(/full-path="([^"]+)"/);
+    const opfMatch = containerEntry
+      .getData()
+      .toString('utf8')
+      .match(/full-path="([^"]+)"/);
     if (!opfMatch) return {};
-    const opfEntry = entries.find(e => e.entryName === opfMatch[1]);
+    const opfEntry = entries.find((e) => e.entryName === opfMatch[1]);
     if (!opfEntry) return {};
     const opfXml = opfEntry.getData().toString('utf8');
     const titleMatch = opfXml.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/);
@@ -465,10 +541,6 @@ function extractEpubMeta(epubPath) {
   } catch {
     return {};
   }
-}
-
-function extractEpubTitle(epubPath) {
-  return extractEpubMeta(epubPath).title;
 }
 
 // titlesMatch / cleanTitle / guessAuthorFromFilename moved to ./titles.js
@@ -504,9 +576,7 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
   } catch (e) {
     return { error: `Could not read file: ${e.message}` };
   }
-  const existing = await metaQueue(async () =>
-    loadMeta().books.find(b => b.hash === srcHash)
-  );
+  const existing = await metaQueue(async () => loadMeta().books.find((b) => b.hash === srcHash));
   if (existing) {
     return { duplicate: existing };
   }
@@ -534,7 +604,7 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
   }
   // Fallback for non-EPUB formats (AZW3, MOBI, PDF…): ask Calibre for the
   // embedded cover before resorting to Open Library.
-  if (!coverFile && await extractCoverViaCalibre(originalPath, coverCandidate)) {
+  if (!coverFile && (await extractCoverViaCalibre(originalPath, coverCandidate))) {
     coverFile = `${id}.cover`;
     await resizeCoverInPlace(coverCandidate);
   }
@@ -619,8 +689,14 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
     try {
       await convertToAzw3(originalPath, azwPath, coverFullPath);
     } catch (e) {
-      try { fs.unlinkSync(originalPath); } catch {}
-      if (coverFile) { try { fs.unlinkSync(path.join(booksDir, coverFile)); } catch {} }
+      try {
+        fs.unlinkSync(originalPath);
+      } catch {}
+      if (coverFile) {
+        try {
+          fs.unlinkSync(path.join(booksDir, coverFile));
+        } catch {}
+      }
       return { error: `Conversion failed: ${e.message}` };
     }
     kindleFile = azwName;
@@ -659,7 +735,7 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
     seriesIndex,
     originalName: displayName,
     originalFile: originalFileName,
-    file: kindleFile,          // what we serve to the Kindle
+    file: kindleFile, // what we serve to the Kindle
     cover: coverFile,
     size: kindleSize,
     ext: kindleExt,
@@ -677,7 +753,7 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
   // Full fix lives in #3 once the in-memory cache lands.
   return await metaQueue(async () => {
     const meta = loadMeta();
-    const winner = meta.books.find(b => b.hash === srcHash);
+    const winner = meta.books.find((b) => b.hash === srcHash);
     if (winner) return { duplicate: winner };
     meta.books.push(book);
     saveMeta(meta);
@@ -687,12 +763,14 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
 
 function deleteBook(id) {
   const meta = loadMeta();
-  const idx = meta.books.findIndex(b => b.id === id);
+  const idx = meta.books.findIndex((b) => b.id === id);
   if (idx === -1) return false;
   const book = meta.books[idx];
   for (const f of [book.file, book.originalFile, book.cover]) {
     if (!f) continue;
-    try { fs.unlinkSync(path.join(booksDir, f)); } catch {}
+    try {
+      fs.unlinkSync(path.join(booksDir, f));
+    } catch {}
   }
   meta.books.splice(idx, 1);
   saveMeta(meta);
@@ -813,7 +891,12 @@ async function migrateExistingBooks() {
       const doc = await searchOpenLibrary(book.title, book.author);
       if (!doc) continue;
       let dirty = false;
-      if (doc.title && titlesMatch(doc.title, book.title) && doc.title !== book.title && doc.title.length <= book.title.length + 4) {
+      if (
+        doc.title &&
+        titlesMatch(doc.title, book.title) &&
+        doc.title !== book.title &&
+        doc.title.length <= book.title.length + 4
+      ) {
         book.title = doc.title;
         dirty = true;
       }
@@ -840,7 +923,10 @@ async function migrateExistingBooks() {
           dirty = true;
         } else {
           const desc = await fetchOpenLibraryDescription(doc);
-          if (desc) { book.description = desc; dirty = true; }
+          if (desc) {
+            book.description = desc;
+            dirty = true;
+          }
         }
       }
       if (dirty) {
@@ -864,7 +950,9 @@ async function migrateExistingBooks() {
       const resized = await resizeCoverInPlace(coverPath);
       if (resized) {
         const sizeAfter = fs.statSync(coverPath).size;
-        console.log(`Resized cover "${book.title}": ${(sizeBefore/1024).toFixed(0)}KB → ${(sizeAfter/1024).toFixed(0)}KB`);
+        console.log(
+          `Resized cover "${book.title}": ${(sizeBefore / 1024).toFixed(0)}KB → ${(sizeAfter / 1024).toFixed(0)}KB`,
+        );
       }
     } catch {}
   }
@@ -888,7 +976,9 @@ async function migrateExistingBooks() {
         normalizeKindleMetadata(fp);
         book.exthNormalized = true;
         delete book.asinInjected;
-        try { book.size = fs.statSync(fp).size; } catch {}
+        try {
+          book.size = fs.statSync(fp).size;
+        } catch {}
         saveMeta(m);
         if (mainWindow) mainWindow.webContents.send('books:changed');
       } catch (e) {
@@ -913,7 +1003,11 @@ async function migrateExistingBooks() {
     const tmpOut = path.join(booksDir, `${book.id}_rebuild.azw3`);
     try {
       console.log(`Rebuilding "${book.title}" as AZW3…`);
-      await convertToAzw3(origPath, tmpOut, coverPath && fs.existsSync(coverPath) ? coverPath : null);
+      await convertToAzw3(
+        origPath,
+        tmpOut,
+        coverPath && fs.existsSync(coverPath) ? coverPath : null,
+      );
       if (!fs.existsSync(tmpOut)) {
         throw new Error(`Calibre did not produce ${tmpOut}`);
       }
@@ -921,7 +1015,9 @@ async function migrateExistingBooks() {
       // Clean up the old .mobi if it's no longer the served file
       const oldFile = book.file;
       if (oldFile && oldFile !== azwName) {
-        try { fs.unlinkSync(path.join(booksDir, oldFile)); } catch {}
+        try {
+          fs.unlinkSync(path.join(booksDir, oldFile));
+        } catch {}
       }
       book.file = azwName;
       book.ext = 'azw3';
@@ -936,18 +1032,21 @@ async function migrateExistingBooks() {
       } catch (e) {
         console.warn(`EXTH normalize failed for "${book.title}":`, e.message);
       }
-      try { book.size = fs.statSync(path.join(booksDir, azwName)).size; } catch {}
+      try {
+        book.size = fs.statSync(path.join(booksDir, azwName)).size;
+      } catch {}
       saveMeta(meta3);
       if (mainWindow) mainWindow.webContents.send('books:changed');
     } catch (e) {
-      try { fs.unlinkSync(tmpOut); } catch {}
+      try {
+        fs.unlinkSync(tmpOut);
+      } catch {}
       console.warn(`AZW3 rebuild failed for "${book.title}":`, e.message);
     }
   }
 }
 
 // ---------- Networking ----------
-
 
 // Loopback gate for write-side endpoints (#37 /upload). The server listens
 // on 0.0.0.0 so the Kindle can read; we don't want to expose mutating
@@ -957,25 +1056,21 @@ function isLoopback(addr) {
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
-
-
-
 // Renders a static mock of the Electron bookshelf UI — used only for the
 // README screenshot. It is served from /screenshot in the same HTTP server.
 function renderScreenshotHtml() {
   const books = listBooks().slice(0, 8);
-  const rendered = books.map(b => {
-    const coverMarkup = b.cover
-      ? `<img src="/${serverToken}/cover/${b.id}" alt="">`
-      : `<div class="book-cover placeholder" style="font-size:11px;">${escapeHtml(b.title.slice(0, 30))}</div>`;
-    return `
+  const rendered = books
+    .map((b) => {
+      return `
       <div class="book-card">
         <div class="book-cover">${b.cover ? `<img src="/${serverToken}/cover/${b.id}" alt="">` : escapeHtml(b.title.slice(0, 24))}</div>
         <div class="book-title">${escapeHtml(b.title)}</div>
         <div class="book-size">${b.ext.toUpperCase()} &middot; ${humanSize(b.size)}</div>
       </div>
     `;
-  }).join('');
+    })
+    .join('');
 
   const cssPath = path.join(__dirname, 'renderer', 'style.css');
   const css = fs.readFileSync(cssPath, 'utf8');
@@ -1032,7 +1127,6 @@ function renderScreenshotHtml() {
 </html>`;
 }
 
-
 function startServer() {
   if (server) return;
 
@@ -1057,7 +1151,9 @@ function startServer() {
     // req.url can't tip a blocked client into the catch path's 500
     // response — that would break the stealth-404 behavior.
     if (authLimiter.isBlocked(ip)) {
-      res.writeHead(404); res.end('Not found'); return;
+      res.writeHead(404);
+      res.end('Not found');
+      return;
     }
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
@@ -1076,7 +1172,7 @@ function startServer() {
         if (pairResult.ok) {
           authLimiter.recordSuccess(ip);
           res.writeHead(302, {
-            'Location': pairResult.location,
+            Location: pairResult.location,
             'Set-Cookie': pairResult.setCookie,
             'Cache-Control': 'no-store',
           });
@@ -1084,7 +1180,9 @@ function startServer() {
           return;
         }
         authLimiter.recordFail(ip);
-        res.writeHead(pairResult.status); res.end('Not found'); return;
+        res.writeHead(pairResult.status);
+        res.end('Not found');
+        return;
       }
 
       // Bare-URL fallback (post-pair): if the request has no /<token>/
@@ -1094,7 +1192,7 @@ function startServer() {
       if (url.pathname === '/' || url.pathname === '') {
         if (hasMatchingCookieToken(req.headers.cookie, serverToken)) {
           authLimiter.recordSuccess(ip);
-          res.writeHead(302, { 'Location': `/${serverToken}/`, 'Cache-Control': 'no-store' });
+          res.writeHead(302, { Location: `/${serverToken}/`, 'Cache-Control': 'no-store' });
           res.end();
           return;
         }
@@ -1111,7 +1209,9 @@ function startServer() {
         tokensMatch,
       });
       if (!auth.allow) {
-        res.writeHead(auth.status); res.end('Not found'); return;
+        res.writeHead(auth.status);
+        res.end('Not found');
+        return;
       }
       const subPath = auth.subPath;
       // CLI / future-extension upload (#37). Same token as the rest of the
@@ -1149,7 +1249,8 @@ function startServer() {
         // limiting; rename here so future readers don't conflate the two.
         const localIp = getLocalIP();
         const newUrl = `http://${localIp}:${PORT}/${next}/`;
-        if (mainWindow) mainWindow.webContents.send('server:tokenRotated', { token: next, url: newUrl });
+        if (mainWindow)
+          mainWindow.webContents.send('server:tokenRotated', { token: next, url: newUrl });
         res.writeHead(200, {
           'Content-Type': 'application/json; charset=utf-8',
           'Cache-Control': 'no-store',
@@ -1196,8 +1297,12 @@ function startServer() {
           if (received > MAX_UPLOAD_BYTES) {
             aborted = true;
             out.destroy();
-            try { req.destroy(); } catch {}
-            try { fs.unlinkSync(tmpPath); } catch {}
+            try {
+              req.destroy();
+            } catch {}
+            try {
+              fs.unlinkSync(tmpPath);
+            } catch {}
             res.writeHead(413, { 'Content-Type': 'text/plain' });
             res.end('Upload exceeded size limit mid-stream.');
           }
@@ -1214,12 +1319,16 @@ function startServer() {
             req.on('aborted', () => reject(new Error('client aborted upload')));
           });
         } catch (e) {
-          try { fs.unlinkSync(tmpPath); } catch {}
+          try {
+            fs.unlinkSync(tmpPath);
+          } catch {}
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'text/plain' });
             // Match the leak-suppression posture used elsewhere in the
             // request handler (see the catch blocks at the bottom).
-            res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Upload write failed: ${e.message}`);
+            res.end(
+              process.env.NODE_ENV === 'production' ? 'Error' : `Upload write failed: ${e.message}`,
+            );
           }
           return;
         }
@@ -1233,7 +1342,9 @@ function startServer() {
         } catch (e) {
           result = { error: e.message };
         } finally {
-          try { fs.unlinkSync(tmpPath); } catch {}
+          try {
+            fs.unlinkSync(tmpPath);
+          } catch {}
         }
         if (result.book && mainWindow) mainWindow.webContents.send('books:changed');
         res.writeHead(200, {
@@ -1255,8 +1366,8 @@ function startServer() {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-          'Pragma': 'no-cache',
-          'Expires': '0',
+          Pragma: 'no-cache',
+          Expires: '0',
         });
         res.end(renderShelfHtml({ books: listBooks(), serverToken }));
         return;
@@ -1294,10 +1405,6 @@ function startServer() {
         pipeStreamToResponse(dlStream, req, res);
         return;
       }
-      // Streams the original .epub for the in-app reader (epubjs needs the
-      // raw zip with proper MIME). The reader fetches via loopback, but the
-      // route is reachable from LAN with the token like every other route —
-      // CORS is set to 'null' (matches file:// origin) and Range support
       // keeps epubjs happy on big books. The decision logic lives in
       // route-epub.js so it can be tested without booting an HTTP server.
       const epubDecision = await handleEpubRequest({
@@ -1319,7 +1426,8 @@ function startServer() {
         }
         return;
       }
-      res.writeHead(404); res.end('Not found');
+      res.writeHead(404);
+      res.end('Not found');
     } catch (e) {
       // Server-level catch was returning a generic "Error" body with no log
       // — debugging download failures was blind. Log the stack to the main-
@@ -1370,7 +1478,9 @@ function stopMdns() {
   // which means goodbye packets aren't sent.
   const b = bonjour;
   bonjour = null;
-  try { b.unpublishAll(() => b.destroy()); } catch {}
+  try {
+    b.unpublishAll(() => b.destroy());
+  } catch {}
 }
 
 // ---------- Electron ----------
@@ -1394,7 +1504,9 @@ function createWindow() {
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) {
-    try { app.dock.setIcon(path.join(__dirname, 'build', 'icon.icns')); } catch {}
+    try {
+      app.dock.setIcon(path.join(__dirname, 'build', 'icon.icns'));
+    } catch {}
   }
   const userData = app.getPath('userData');
   userDataPath = userData;
@@ -1409,7 +1521,7 @@ app.whenReady().then(() => {
   // connections.
   startServer();
   createWindow();
-  migrateExistingBooks().catch(e => console.error('migration error', e));
+  migrateExistingBooks().catch((e) => console.error('migration error', e));
   scheduleAutoUpdates();
 
   app.on('activate', () => {
@@ -1440,7 +1552,9 @@ function scheduleAutoUpdates() {
   // check will resurface the same update.
   function notifyRenderer(channel, payload) {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      try { mainWindow.webContents.send(channel, payload); } catch {}
+      try {
+        mainWindow.webContents.send(channel, payload);
+      } catch {}
     }
   }
 
@@ -1457,7 +1571,9 @@ function scheduleAutoUpdates() {
   // Renderer-initiated relaunch — fired by the toast's "Restart" button.
   // quitAndInstall false-false skips the prompt + reopens the app.
   ipcMain.handle('updater:install', () => {
-    try { autoUpdater.quitAndInstall(false, true); } catch (e) {
+    try {
+      autoUpdater.quitAndInstall(false, true);
+    } catch (e) {
       console.warn('[updater] quitAndInstall failed:', e?.message || e);
     }
   });
@@ -1466,16 +1582,22 @@ function scheduleAutoUpdates() {
     console.warn('[updater] initial check failed:', e?.message || e);
   });
   // Re-check daily for long-lived sessions.
-  setInterval(() => {
-    autoUpdater.checkForUpdates().catch((e) => {
-      console.warn('[updater] periodic check failed:', e?.message || e);
-    });
-  }, 24 * 60 * 60 * 1000);
+  setInterval(
+    () => {
+      autoUpdater.checkForUpdates().catch((e) => {
+        console.warn('[updater] periodic check failed:', e?.message || e);
+      });
+    },
+    24 * 60 * 60 * 1000,
+  );
 }
 
 app.on('window-all-closed', () => {
   stopMdns();
-  if (server) { server.close(); server = null; }
+  if (server) {
+    server.close();
+    server = null;
+  }
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -1486,14 +1608,16 @@ app.on('before-quit', stopMdns);
 // ---------- IPC ----------
 
 ipcMain.handle('books:list', () => {
-  return listBooks().map(b => {
+  return listBooks().map((b) => {
     let coverUrl = null;
     if (b.cover) {
       const p = path.join(booksDir, b.cover);
       // Append mtime as a cache-buster so replaced covers actually re-render;
       // the filename itself is stable (`<id>.cover`) across re-fetches.
       let v = '';
-      try { v = `?v=${fs.statSync(p).mtimeMs | 0}`; } catch {}
+      try {
+        v = `?v=${fs.statSync(p).mtimeMs | 0}`;
+      } catch {}
       coverUrl = `file://${p}${v}`;
     }
     return { ...b, coverUrl, sizeHuman: humanSize(b.size) };
@@ -1504,7 +1628,7 @@ ipcMain.handle('books:add', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Add Books',
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map(e => e.slice(1)) }],
+    filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map((e) => e.slice(1)) }],
   });
   if (result.canceled) return { added: [], errors: [], duplicates: [] };
   const out = await addManyBooks(result.filePaths);
@@ -1519,7 +1643,7 @@ ipcMain.handle('books:pick', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Add Books',
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map(e => e.slice(1)) }],
+    filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map((e) => e.slice(1)) }],
   });
   if (result.canceled) return { paths: [] };
   return { paths: result.filePaths };
@@ -1556,11 +1680,14 @@ ipcMain.handle('library:importCalibre', async () => {
     return { error: 'No AZW3, MOBI or EPUB files found in this Calibre library.' };
   }
 
-  const out = await addManyBooks(books.map(b => b.filePath), ({ done, total }) => {
-    if (mainWindow) {
-      mainWindow.webContents.send('library:importProgress', { done, total });
-    }
-  });
+  const out = await addManyBooks(
+    books.map((b) => b.filePath),
+    ({ done, total }) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('library:importProgress', { done, total });
+      }
+    },
+  );
 
   if (out.added.length && mainWindow) mainWindow.webContents.send('books:changed');
   return { ...out, total: books.length };
@@ -1580,14 +1707,17 @@ async function addManyBooks(paths, onProgress) {
     try {
       const result = await addBook(p);
       if (result.book) added.push(result.book);
-      else if (result.duplicate) duplicates.push({ path: path.basename(p), title: result.duplicate.title });
+      else if (result.duplicate)
+        duplicates.push({ path: path.basename(p), title: result.duplicate.title });
       else if (result.error) errors.push({ path: path.basename(p), error: result.error });
     } catch (e) {
       errors.push({ path: path.basename(p), error: e.message });
     }
     done += 1;
     if (onProgress) {
-      try { onProgress({ done, total: paths.length }); } catch {}
+      try {
+        onProgress({ done, total: paths.length });
+      } catch {}
     }
   });
   return { added, errors, duplicates };
@@ -1717,7 +1847,7 @@ ipcMain.handle('open:external', async (_e, url) => {
 async function setBookCoverFromBuffer(bookId, buf) {
   if (!buf || buf.length < 1000) return { error: 'Image too small — likely a placeholder.' };
   const meta = loadMeta();
-  const target = meta.books.find(b => b.id === bookId);
+  const target = meta.books.find((b) => b.id === bookId);
   if (!target) return { error: 'Book not found.' };
   const coverPath = path.join(booksDir, `${bookId}.cover`);
   try {
@@ -1741,7 +1871,11 @@ ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
   if (!url || typeof url !== 'string') return { error: 'No URL provided.' };
   // Validates scheme + DNS-resolves to block SSRF against LAN/loopback/
   // metadata services (e.g. http://router.local, http://169.254.169.254).
-  try { await assertExternalUrl(url); } catch (e) { return { error: e.message }; }
+  try {
+    await assertExternalUrl(url);
+  } catch (e) {
+    return { error: e.message };
+  }
   try {
     const res = await fetch(url, { headers: { 'User-Agent': 'Airshelf/0.1' } });
     if (!res.ok) return { error: `Server returned ${res.status}.` };
@@ -1821,15 +1955,19 @@ ipcMain.handle('library:restore', async () => {
     cancelId: 0,
     title: 'Replace current library?',
     message: 'This will replace your current library with the contents of the backup.',
-    detail: 'Your existing books and metadata are renamed aside (with a `.backup-<timestamp>` suffix) so you can recover them manually if needed.',
+    detail:
+      'Your existing books and metadata are renamed aside (with a `.backup-<timestamp>` suffix) so you can recover them manually if needed.',
   });
   if (confirm.response !== 1) return { canceled: true };
 
   let stagingDir = null;
   try {
     let zip;
-    try { zip = new AdmZip(zipPath); }
-    catch (e) { return { error: `Could not read zip: ${e.message}` }; }
+    try {
+      zip = new AdmZip(zipPath);
+    } catch (e) {
+      return { error: `Could not read zip: ${e.message}` };
+    }
     const entries = zip.getEntries();
 
     // Quota guards against a zip bomb or accidentally selected non-backup
@@ -1838,7 +1976,7 @@ ipcMain.handle('library:restore', async () => {
     // decompressing 1000x ratios into memory.
     const MAX_ENTRIES = 50_000;
     const MAX_TOTAL_UNCOMPRESSED = 50 * 1024 * 1024 * 1024; // 50 GB
-    const MAX_JSON_BYTES = 4 * 1024 * 1024;                 // 4 MB for manifest/books.json
+    const MAX_JSON_BYTES = 4 * 1024 * 1024; // 4 MB for manifest/books.json
     if (entries.length > MAX_ENTRIES) {
       return { error: `Backup has too many entries (${entries.length} > ${MAX_ENTRIES}).` };
     }
@@ -1852,23 +1990,29 @@ ipcMain.handle('library:restore', async () => {
       }
     }
 
-    const manifestEntry = entries.find(e => e.entryName === 'manifest.json');
+    const manifestEntry = entries.find((e) => e.entryName === 'manifest.json');
     let manifest = null;
     if (manifestEntry) {
       if ((manifestEntry.header && Number(manifestEntry.header.size)) > MAX_JSON_BYTES) {
         return { error: 'Backup manifest.json is unreasonably large.' };
       }
-      try { manifest = JSON.parse(manifestEntry.getData().toString('utf8')); }
-      catch { return { error: 'Backup manifest.json is corrupt.' }; }
+      try {
+        manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
+      } catch {
+        return { error: 'Backup manifest.json is corrupt.' };
+      }
     }
-    const booksJsonEntry = entries.find(e => e.entryName === 'books.json');
+    const booksJsonEntry = entries.find((e) => e.entryName === 'books.json');
     let backupMeta = null;
     if (booksJsonEntry) {
       if ((booksJsonEntry.header && Number(booksJsonEntry.header.size)) > MAX_JSON_BYTES) {
         return { error: 'Backup books.json is unreasonably large.' };
       }
-      try { backupMeta = JSON.parse(booksJsonEntry.getData().toString('utf8')); }
-      catch { return { error: 'Backup books.json is corrupt.' }; }
+      try {
+        backupMeta = JSON.parse(booksJsonEntry.getData().toString('utf8'));
+      } catch {
+        return { error: 'Backup books.json is corrupt.' };
+      }
     }
     // Pull every flat file under books/ from the archive. Reject directory
     // entries upfront — the validator only handles single basenames.
@@ -1910,10 +2054,18 @@ ipcMain.handle('library:restore', async () => {
     const stagedBooksJson = path.join(stagingDir, 'books.json');
     let stage = 0;
     try {
-      if (fs.existsSync(booksDir)) { fs.renameSync(booksDir, oldBooksAside); stage = 1; }
-      if (fs.existsSync(metaFile)) { fs.renameSync(metaFile, oldMetaAside); stage = 2; }
-      fs.renameSync(stagingBooks, booksDir); stage = 3;
-      fs.renameSync(stagedBooksJson, metaFile); stage = 4;
+      if (fs.existsSync(booksDir)) {
+        fs.renameSync(booksDir, oldBooksAside);
+        stage = 1;
+      }
+      if (fs.existsSync(metaFile)) {
+        fs.renameSync(metaFile, oldMetaAside);
+        stage = 2;
+      }
+      fs.renameSync(stagingBooks, booksDir);
+      stage = 3;
+      fs.renameSync(stagedBooksJson, metaFile);
+      stage = 4;
     } catch (swapErr) {
       try {
         if (stage >= 4) fs.renameSync(metaFile, stagedBooksJson);
@@ -1927,7 +2079,9 @@ ipcMain.handle('library:restore', async () => {
       }
       return { error: `Restore swap failed: ${swapErr.message}. Library left intact.` };
     }
-    try { fs.rmdirSync(stagingDir); } catch {}
+    try {
+      fs.rmdirSync(stagingDir);
+    } catch {}
     stagingDir = null;
 
     metaCache = null;
@@ -1936,7 +2090,9 @@ ipcMain.handle('library:restore', async () => {
   } catch (e) {
     console.error('Restore failed:', e);
     if (stagingDir) {
-      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+      try {
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+      } catch {}
     }
     return { error: e.message };
   }
@@ -1954,7 +2110,7 @@ ipcMain.handle('books:showContextMenu', (e, id) => {
           const result = await dialog.showOpenDialog(mainWindow, {
             title: 'Add Books',
             properties: ['openFile', 'multiSelections'],
-            filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map(x => x.slice(1)) }],
+            filters: [{ name: 'Ebooks', extensions: SUPPORTED_EXTS.map((x) => x.slice(1)) }],
           });
           if (!result.canceled) {
             await addManyBooks(result.filePaths);
@@ -1976,7 +2132,7 @@ ipcMain.handle('books:showContextMenu', (e, id) => {
     return;
   }
 
-  const book = listBooks().find(b => b.id === id);
+  const book = listBooks().find((b) => b.id === id);
   if (!book) return;
   const kindlePath = path.join(booksDir, book.file);
   const origPath = book.originalFile ? path.join(booksDir, book.originalFile) : null;
@@ -2031,10 +2187,11 @@ ipcMain.handle('books:showContextMenu', (e, id) => {
           const ok = await downloadOpenLibraryCover(doc, coverCandidate);
           if (ok) {
             const meta = loadMeta();
-            const target = meta.books.find(x => x.id === book.id);
+            const target = meta.books.find((x) => x.id === book.id);
             if (target) {
               target.cover = `${book.id}.cover`;
-              if (!target.author && doc.author_name && doc.author_name[0]) target.author = doc.author_name[0];
+              if (!target.author && doc.author_name && doc.author_name[0])
+                target.author = doc.author_name[0];
               if (!target.year && doc.first_publish_year) target.year = doc.first_publish_year;
               saveMeta(meta);
               if (mainWindow) mainWindow.webContents.send('books:changed');

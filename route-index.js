@@ -11,9 +11,17 @@
 // These helpers duplicate the pair in main.js / src/utils.ts. Kept local so
 // route-index.js has no external imports beyond Node stdlib (it has none).
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[c],
+  );
 }
 
 function humanSize(bytes) {
@@ -25,7 +33,9 @@ function humanSize(bytes) {
 function renderRow(b, i, total, serverToken) {
   const authorLine = b.author
     ? `<div class="author">${escapeHtml(b.author)}${b.year ? ` &middot; ${b.year}` : ''}</div>`
-    : (b.year ? `<div class="author">${b.year}</div>` : '');
+    : b.year
+      ? `<div class="author">${b.year}</div>`
+      : '';
   const cover = b.cover
     ? `<div class="cover-frame" style="background-image:url('/${serverToken}/cover/${b.id}')"></div>`
     : `<div class="cover-frame cover-fallback">${escapeHtml(b.title.slice(0, 40))}</div>`;

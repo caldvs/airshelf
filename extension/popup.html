@@ -1,32 +1,41 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Send to Airshelf</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <div class="wrap">
-    <h1>Send to Airshelf</h1>
+  <head>
+    <meta charset="utf-8" />
+    <title>Send to Airshelf</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Send to Airshelf</h1>
 
-    <section id="setup-section">
-      <label for="kindle-url" class="hint">Paste your Airshelf Kindle URL — found in the app under <em>Send</em>.</label>
-      <input type="text" id="kindle-url" placeholder="http://127.0.0.1:6790/abcdef/" autocomplete="off" spellcheck="false">
-      <button id="save-token-btn">Pair</button>
-      <p class="status hidden" id="setup-status"></p>
-    </section>
+      <section id="setup-section">
+        <label for="kindle-url" class="hint"
+          >Paste your Airshelf Kindle URL — found in the app under <em>Send</em>.</label
+        >
+        <input
+          type="text"
+          id="kindle-url"
+          placeholder="http://127.0.0.1:6790/abcdef/"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="save-token-btn">Pair</button>
+        <p class="status hidden" id="setup-status"></p>
+      </section>
 
-    <section id="send-section" class="hidden">
-      <p class="hint">Paired with <code id="paired-host"></code>.
-        <button class="link" id="unpair-btn">Forget</button>
-      </p>
-      <p class="page-title" id="page-title"></p>
-      <div class="actions">
-        <button id="send-btn" class="primary">Send current page</button>
-      </div>
-      <p class="status" id="send-status"></p>
-    </section>
-  </div>
-  <script type="module" src="popup.js"></script>
-</body>
+      <section id="send-section" class="hidden">
+        <p class="hint">
+          Paired with <code id="paired-host"></code>.
+          <button class="link" id="unpair-btn">Forget</button>
+        </p>
+        <p class="page-title" id="page-title"></p>
+        <div class="actions">
+          <button id="send-btn" class="primary">Send current page</button>
+        </div>
+        <p class="status" id="send-status"></p>
+      </section>
+    </div>
+    <script type="module" src="popup.js"></script>
+  </body>
 </html>

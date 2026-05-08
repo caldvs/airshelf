@@ -42,4 +42,4 @@ jobs:
           # Skip code signing in CI — we don't have certs there, and the
           # `target: dir` build doesn't need a signed bundle to verify the
           # files allowlist.
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'

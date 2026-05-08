@@ -68,9 +68,7 @@ describe('deriveFilename', () => {
   });
 
   it('appends .pdf when the URL has no recognisable extension', () => {
-    expect(deriveFilename('https://example.com/some-article')).toBe(
-      'some-article.pdf',
-    );
+    expect(deriveFilename('https://example.com/some-article')).toBe('some-article.pdf');
   });
 
   it('appends .pdf when the URL extension is not in the ebook allowlist', () => {

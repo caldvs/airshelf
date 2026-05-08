@@ -30,7 +30,9 @@ describe('PairCodeStore', () => {
     let t = start;
     return {
       now: () => t,
-      advance(ms) { t += ms; },
+      advance(ms) {
+        t += ms;
+      },
     };
   }
 
@@ -146,9 +148,9 @@ describe('PairCodeStore', () => {
     s.issue();
     expect(s.consume(null)).toBe(false);
     expect(s.consume('')).toBe(false);
-    expect(s.consume('AB')).toBe(false);             // wrong length
-    expect(s.consume('AB0X')).toBe(false);           // banned char
-    expect(s.consume('abcdef')).toBe(false);         // not in alphabet (lowercase ok but length+chars must match)
+    expect(s.consume('AB')).toBe(false); // wrong length
+    expect(s.consume('AB0X')).toBe(false); // banned char
+    expect(s.consume('abcdef')).toBe(false); // not in alphabet (lowercase ok but length+chars must match)
     expect(s.consume(1234)).toBe(false);
   });
 });
