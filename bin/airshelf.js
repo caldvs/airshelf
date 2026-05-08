@@ -179,19 +179,57 @@ async function cmdSend(paths) {
   process.exit(errCount > 0 ? 1 : 0);
 }
 
+// Generate a new server token. Hits POST /<token>/rotate-token on the
+// running app (loopback-only on the server side) and prints the new URL.
+// Existing connected devices will start getting 404s until they re-pair
+// or pick up the new URL — the warning makes that explicit so the user
+// isn't surprised.
+async function cmdRotateToken() {
+  const userData = userDataDir();
+  const token = readToken(userData);
+  if (!token) {
+    process.stderr.write(`airshelf: no server token found in ${userData}\n`);
+    process.exit(1);
+  }
+  let res;
+  try {
+    res = await fetch(`http://127.0.0.1:${PORT}/${token}/rotate-token`, { method: 'POST' });
+  } catch (e) {
+    const code = e?.code ?? e?.cause?.code;
+    const hint = code === 'ECONNREFUSED'
+      ? `is Airshelf running on port ${PORT}?`
+      : e?.cause?.message || e?.message || String(e);
+    process.stderr.write(`airshelf: rotate failed — ${hint}\n`);
+    process.exit(1);
+  }
+  if (!res.ok) {
+    process.stderr.write(`airshelf: rotate failed — HTTP ${res.status}\n`);
+    process.exit(1);
+  }
+  let payload;
+  try { payload = await res.json(); } catch {}
+  if (!payload || !payload.url) {
+    process.stderr.write(`airshelf: rotate succeeded but response was malformed\n`);
+    process.exit(1);
+  }
+  process.stdout.write(`${payload.url}\n`);
+  process.stderr.write(`(connected Kindles will need to re-pair)\n`);
+}
+
 function cmdHelp() {
   process.stdout.write(
     `airshelf — CLI for the Airshelf Mac app\n` +
     `\n` +
     `Usage:\n` +
-    `  airshelf url           print the Kindle URL (http://<lan-ip>:6790/<token>/)\n` +
-    `  airshelf list          print the library as TSV (id, title, author, size)\n` +
-    `  airshelf send <file…>  upload one or more ebooks (TSV: path<TAB>status<TAB>info)\n` +
-    `  airshelf -h            this help\n` +
+    `  airshelf url            print the Kindle URL (http://<lan-ip>:6790/<token>/)\n` +
+    `  airshelf list           print the library as TSV (id, title, author, size)\n` +
+    `  airshelf send <file…>   upload one or more ebooks (TSV: path<TAB>status<TAB>info)\n` +
+    `  airshelf rotate-token   generate a new server token and print the new URL\n` +
+    `  airshelf -h             this help\n` +
     `\n` +
     `url and list read state from\n` +
     `  ${userDataDir()}\n` +
-    `send requires Airshelf to be running on this machine.\n`,
+    `send and rotate-token require Airshelf to be running on this machine.\n`,
   );
 }
 
@@ -201,6 +239,7 @@ function main(argv) {
     case 'url':  return cmdUrl();
     case 'list': return cmdList();
     case 'send': return cmdSend(argv.slice(3));
+    case 'rotate-token': return cmdRotateToken();
     case '-h':
     case '--help':
     case 'help':

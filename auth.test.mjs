@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   tokensMatch,
   loadOrCreateServerToken,
+  rotateServerToken,
   generatePronounceableToken,
   FailedAuthLimiter,
   TOKEN_RE,
@@ -111,6 +112,40 @@ describe('loadOrCreateServerToken', () => {
     const t = loadOrCreateServerToken(dir);
     expect(t).toBe('badera');
     expect(fs.statSync(tokenFile).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe('rotateServerToken', () => {
+  let dir;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'airshelf-rotate-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('replaces an existing token with a freshly-generated valid one', () => {
+    const a = loadOrCreateServerToken(dir);
+    const b = rotateServerToken(dir);
+    expect(b).toMatch(TOKEN_RE);
+    expect(b).not.toBe(a); // overwhelmingly likely; ~1/1.16M chance of collision
+    const onDisk = fs.readFileSync(path.join(dir, 'server-token'), 'utf8').trim();
+    expect(onDisk).toBe(b);
+  });
+
+  it('preserves 0600 permissions after rotation', () => {
+    rotateServerToken(dir);
+    const stat = fs.statSync(path.join(dir, 'server-token'));
+    expect(stat.mode & 0o777).toBe(0o600);
+  });
+
+  it('writes atomically — no .tmp file lingers on success', () => {
+    rotateServerToken(dir);
+    const entries = fs.readdirSync(dir);
+    expect(entries).toContain('server-token');
+    expect(entries.some(n => n.endsWith('.tmp'))).toBe(false);
   });
 });
 

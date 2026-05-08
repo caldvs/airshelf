@@ -267,7 +267,7 @@ async function getOrBuildReaderEpub(book) {
 
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
 const { buildManifest, validateBackup } = require('./backup.js');
-const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const { tokensMatch, loadOrCreateServerToken, rotateServerToken, FailedAuthLimiter } = require('./auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handleCoverRequest } = require('./route-cover.js');
@@ -295,6 +295,7 @@ let server = null;
 let booksDir = null;
 let metaFile = null;
 let serverToken = null;
+let userDataPath = null;
 const pairStore = new PairCodeStore();
 let settingsFile = null;
 let bonjour = null;
@@ -1382,6 +1383,38 @@ function startServer() {
       // can pick up the right extension and (via cleanTitle) a sensible
       // fallback title. Cap is generous (1 GB) — large PDFs are common,
       // but we won't accept multi-GB blobs by accident.
+      // Rotate the server token (#37 `airshelf rotate-token`). Same
+      // loopback-only gate as /upload — the running app's serverToken
+      // updates atomically so existing /<old-token>/ requests start
+      // returning 404 immediately. Connected Kindles need to re-pair
+      // (or use the cookie set by the pair flow if they have one) to
+      // pick up the new URL.
+      if (subPath === '/rotate-token' && req.method === 'POST') {
+        if (!isLoopback(req.socket.remoteAddress)) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not found');
+          return;
+        }
+        let next;
+        try {
+          next = rotateServerToken(userDataPath);
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Rotate failed: ${e.message}`);
+          return;
+        }
+        serverToken = next;
+        const ip = getLocalIP();
+        const newUrl = `http://${ip}:${PORT}/${next}/`;
+        if (mainWindow) mainWindow.webContents.send('server:tokenRotated', { token: next, url: newUrl });
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        res.end(JSON.stringify({ ok: true, token: next, url: newUrl }));
+        return;
+      }
+
       if (subPath === '/upload' && req.method === 'POST') {
         if (!isLoopback(req.socket.remoteAddress)) {
           res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -1654,6 +1687,7 @@ app.whenReady().then(() => {
     try { app.dock.setIcon(path.join(__dirname, 'build', 'icon.icns')); } catch {}
   }
   const userData = app.getPath('userData');
+  userDataPath = userData;
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
