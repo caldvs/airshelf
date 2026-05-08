@@ -98,7 +98,10 @@ describe('validateUploadRequest', () => {
   });
 
   it('rejects unsupported extensions with 415', () => {
-    expect(call({ headers: { 'x-filename': 'doc.docx', 'content-length': '1' } })).toEqual({
+    // Both extensions are absent from the local SUPPORTED list AND from
+    // production SUPPORTED_EXTS (KINDLE_NATIVE + CONVERTIBLE), so the
+    // example stays meaningful even when read against main.js.
+    expect(call({ headers: { 'x-filename': 'image.iso', 'content-length': '1' } })).toEqual({
       ok: false,
       status: 415,
       message: 'Unsupported file format.',

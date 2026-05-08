@@ -12,7 +12,7 @@
 //   { ok: true,  filename, ext, maxBytes }
 //   { ok: false, status, message }
 //
-// 1 GB cap matches the on-the-wire limit enforced mid-stream in main.js;
+// 1 GiB cap matches the on-the-wire limit enforced mid-stream in main.js;
 // keeping the constant here so the two checks can't drift.
 
 const path = require('path');
