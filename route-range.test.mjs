@@ -81,7 +81,14 @@ describe('parseRangeHeader', () => {
     });
   });
 
-  it('rejects multi-range headers (uncommon for ebooks; not worth the complexity)', () => {
-    expect(parseRangeHeader('bytes=0-100,200-300', 1000)).toBeNull();
+  it('matches the first range in a multi-range header (matches the prior inline regex)', () => {
+    const r = parseRangeHeader('bytes=0-100,200-300', 1000);
+    expect(r.status).toBe(206);
+    expect(r.start).toBe(0);
+    expect(r.end).toBe(100);
+  });
+
+  it('still rejects headers that do not start with bytes=', () => {
+    expect(parseRangeHeader('garbage bytes=0-100', 1000)).toBeNull();
   });
 });

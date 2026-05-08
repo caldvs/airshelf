@@ -21,7 +21,11 @@
 // expects this same convention.
 function parseRangeHeader(rangeHeader, totalSize) {
   if (!rangeHeader) return null;
-  const m = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader);
+  // Anchored at start, unanchored at end so a multi-range header
+  // (`bytes=0-100,200-300`) matches the FIRST range and 206s — same
+  // behaviour the prior inline implementation had. Multipart byterange
+  // responses aren't worth the complexity for an ebook reader.
+  const m = /^bytes=(\d+)-(\d*)/.exec(rangeHeader);
   if (!m) return null;
   const start = parseInt(m[1], 10);
   const requestedEnd = m[2] ? parseInt(m[2], 10) : totalSize - 1;
