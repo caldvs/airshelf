@@ -8,9 +8,9 @@
 // pronounceable string per auth.js TOKEN_RE) and the book id (hex per
 // addBook), so they don't need escaping.
 
-// These helpers duplicate the pair in main.js / src/utils.ts. Kept local so
-// route-index.js has no external imports beyond Node stdlib (it has none).
-function escapeHtml(s) {
+// These helpers duplicate the pair in src/lib/utils.ts. Kept local so this
+// route module has no external imports beyond Node stdlib (it has none).
+function escapeHtml(s: unknown): string {
   return String(s).replace(
     /[&<>"']/g,
     (c) =>
@@ -20,17 +20,26 @@ function escapeHtml(s) {
         '>': '&gt;',
         '"': '&quot;',
         "'": '&#39;',
-      })[c],
+      })[c] as string,
   );
 }
 
-function humanSize(bytes) {
+function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function renderRow(b, i, total, serverToken) {
+export interface ShelfBook {
+  id: string;
+  title: string;
+  author?: string | null;
+  year?: number | null;
+  cover?: string | null;
+  size: number;
+}
+
+function renderRow(b: ShelfBook, i: number, total: number, serverToken: string): string {
   const authorLine = b.author
     ? `<div class="author">${escapeHtml(b.author)}${b.year ? ` &middot; ${b.year}` : ''}</div>`
     : b.year
@@ -155,10 +164,13 @@ const STYLE = `
   .footer { margin-top: 28px; font-size: 16px; color: #555; text-align: center; }
 `;
 
-// The Kindle-facing landing page. Inputs:
-//   books        — array of book metadata (title, author, year, cover, size, id)
-//   serverToken  — hex token, embedded into download/cover URLs
-function renderShelfHtml({ books, serverToken }) {
+interface RenderShelfArgs {
+  books: ShelfBook[];
+  serverToken: string;
+}
+
+// The Kindle-facing landing page.
+export function renderShelfHtml({ books, serverToken }: RenderShelfArgs): string {
   const total = books.length;
   const rows = books.map((b, i) => renderRow(b, i, total, serverToken)).join('');
   const count = total;
@@ -183,5 +195,3 @@ function renderShelfHtml({ books, serverToken }) {
 </body>
 </html>`;
 }
-
-module.exports = { renderShelfHtml };

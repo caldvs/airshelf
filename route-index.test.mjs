@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderShelfHtml } from './route-index.js';
+import { renderShelfHtml } from './out/server/routes/index.js';
 
 // Matches auth.js TOKEN_RE: 6 lowercase letters, pronounceable.
 const TOKEN = 'fluxar';
