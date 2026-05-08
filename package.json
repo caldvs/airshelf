@@ -2,7 +2,7 @@
   "name": "airshelf",
   "productName": "Airshelf",
   "version": "0.1.0",
-  "description": "Airshelf — wirelessly send ebooks from your Mac to your Kindle",
+  "description": "Airshelf \u2014 wirelessly send ebooks from your Mac to your Kindle",
   "main": "main.js",
   "bin": {
     "airshelf": "bin/airshelf.js"
@@ -63,11 +63,13 @@
       "safety.js",
       "hash.js",
       "concurrency.js",
+      "utils.js",
       "backup.js",
       "calibre.js",
       "openlibrary.js",
       "route-auth.js",
       "route-cover.js",
+      "route-index.js",
       "route-range.js",
       "route-download.js",
       "route-pair.js",
