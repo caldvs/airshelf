@@ -1062,9 +1062,6 @@ function renderScreenshotHtml() {
   const books = listBooks().slice(0, 8);
   const rendered = books
     .map((b) => {
-      const coverMarkup = b.cover
-        ? `<img src="/${serverToken}/cover/${b.id}" alt="">`
-        : `<div class="book-cover placeholder" style="font-size:11px;">${escapeHtml(b.title.slice(0, 30))}</div>`;
       return `
       <div class="book-card">
         <div class="book-cover">${b.cover ? `<img src="/${serverToken}/cover/${b.id}" alt="">` : escapeHtml(b.title.slice(0, 24))}</div>
