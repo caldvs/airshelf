@@ -25,4 +25,6 @@ contextBridge.exposeInMainWorld('airshelf', {
   calibreClear: () => ipcRenderer.invoke('calibre:clear'),
   backupLibrary: () => ipcRenderer.invoke('library:backup'),
   restoreLibrary: () => ipcRenderer.invoke('library:restore'),
+  pairCurrent: () => ipcRenderer.invoke('pair:current'),
+  pairRotate: () => ipcRenderer.invoke('pair:rotate'),
 });

@@ -290,9 +290,18 @@ window.addEventListener('drop', async (e) => {
 });
 
 // ---- Transfer view ----
+const pairUrlEl = document.getElementById('pair-url');
+const pairBareUrlEl = document.getElementById('pair-bare-url');
+const pairTtlEl = document.getElementById('pair-ttl');
+const pairRotateBtn = document.getElementById('pair-rotate');
+
 async function loadServerInfo() {
   const info = await window.airshelf.serverInfo();
   serverUrlEl.textContent = info.url;
+  // Bare URL the user can bookmark on their Kindle once paired — derived
+  // here rather than coming back from the IPC payload because it's just
+  // a trim of info.url.
+  pairBareUrlEl.textContent = `http://${info.ip}:${info.port}/`;
 }
 
 document.getElementById('btn-copy').addEventListener('click', () => {
@@ -350,6 +359,58 @@ if (btnRestore) {
     }
   });
 }
+// ---- Pair code (#34) ----
+//
+// We render the pair URL alongside the existing /<token>/ URL: the pair
+// flow doesn't replace it (cookies are a per-device convenience), it
+// just gives the user a shorter URL for first-time setup. The TTL ticks
+// down once a second; when it hits zero we issue a fresh code so the
+// user always has a usable code on screen.
+
+let pairTtlTimer = null;
+let pairCurrentExpiresAt = 0;
+
+async function refreshPairCode({ forceRotate = false } = {}) {
+  let info;
+  try {
+    info = forceRotate
+      ? await window.airshelf.pairRotate()
+      : await window.airshelf.pairCurrent();
+  } catch (e) {
+    pairUrlEl.textContent = 'pair unavailable';
+    pairTtlEl.textContent = '';
+    showToast(`Pair code failed: ${e.message}`, 'error');
+    return;
+  }
+  pairUrlEl.textContent = info.pairUrl;
+  pairCurrentExpiresAt = info.expiresAt;
+  startPairTtlTimer();
+}
+
+function startPairTtlTimer() {
+  if (pairTtlTimer) clearInterval(pairTtlTimer);
+  const tick = () => {
+    const remaining = Math.max(0, Math.floor((pairCurrentExpiresAt - Date.now()) / 1000));
+    pairTtlEl.textContent = remaining > 0 ? `${remaining}s` : 'expired';
+    // When the code expires the renderer asks main for a fresh one. The
+    // server already sweeps expired entries, so this just resyncs UI with
+    // the next-issued code.
+    if (remaining === 0) {
+      clearInterval(pairTtlTimer);
+      pairTtlTimer = null;
+      refreshPairCode();
+    }
+  };
+  tick();
+  pairTtlTimer = setInterval(tick, 1000);
+}
+
+pairRotateBtn.addEventListener('click', () => refreshPairCode({ forceRotate: true }));
+
+pairUrlEl.addEventListener('click', () => {
+  navigator.clipboard.writeText(pairUrlEl.textContent);
+  showToast('Pair URL copied', 'success');
+});
 
 // Listen for background migrations / changes from main
 if (window.airshelf.onBooksChanged) {
@@ -516,4 +577,5 @@ document.getElementById('calibre-get').addEventListener('click', openCalibreDown
 refresh();
 loadServerInfo();
 setInterval(loadServerInfo, 5000);
+refreshPairCode();
 refreshCalibreStatus();

@@ -266,6 +266,23 @@ async function getOrBuildReaderEpub(book) {
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
 const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
+
+// Pull `airshelf_token=<token>` from a Cookie header value. Spec parsing is
+// overkill here (we only ever set this single cookie) but we skip whitespace
+// and stop at the first match so an attacker-controlled extra cookie can't
+// shadow ours by ordering tricks.
+function parseCookieToken(header) {
+  if (!header || typeof header !== 'string') return null;
+  for (const piece of header.split(';')) {
+    const eq = piece.indexOf('=');
+    if (eq < 0) continue;
+    const name = piece.slice(0, eq).trim();
+    if (name !== 'airshelf_token') continue;
+    return piece.slice(eq + 1).trim();
+  }
+  return null;
+}
 const authLimiter = new FailedAuthLimiter();
 
 let mainWindow = null;
@@ -273,6 +290,7 @@ let server = null;
 let booksDir = null;
 let metaFile = null;
 let serverToken = null;
+const pairStore = new PairCodeStore();
 let settingsFile = null;
 
 // ---------- Settings (small key/value store, separate from books.json) ----------
@@ -1235,6 +1253,47 @@ function startServer() {
         res.writeHead(404); res.end('Not found'); return;
       }
       const url = new URL(req.url, `http://${req.headers.host}`);
+
+      // Pairing flow (#34): /pair/<CODE> validates a short, single-use code
+      // and sets a long-lived cookie carrying the server token. The cookie
+      // path itself doesn't expose listBook/cover routes — those still
+      // require the /<token>/ prefix — but it lets the user reach the
+      // library from a bare-URL bookmark.
+      const pairMatch = url.pathname.match(/^\/pair\/([^/]+)\/?$/);
+      if (pairMatch) {
+        if (pairStore.consume(pairMatch[1])) {
+          authLimiter.recordSuccess(ip);
+          // 1 year is well past the practical lifetime of the running app
+          // and matches "rotate token to revoke" rather than "expire cookie
+          // independently". HttpOnly because the renderer doesn't need
+          // cookie access; SameSite=Lax so the redirect from /pair/:code
+          // still attaches the cookie on the followup request.
+          res.writeHead(302, {
+            'Location': `/${serverToken}/`,
+            'Set-Cookie': `airshelf_token=${serverToken}; Max-Age=31536000; HttpOnly; SameSite=Lax; Path=/`,
+            'Cache-Control': 'no-store',
+          });
+          res.end();
+          return;
+        }
+        authLimiter.recordFail(ip);
+        res.writeHead(404); res.end('Not found'); return;
+      }
+
+      // Bare-URL fallback (post-pair): if the request has no /<token>/
+      // prefix but carries a valid cookie, redirect to the canonical
+      // /<token>/ entry point. Lets the user bookmark http://<lan-ip>:PORT/
+      // instead of the longer token URL.
+      if (url.pathname === '/' || url.pathname === '') {
+        const cookieToken = parseCookieToken(req.headers.cookie);
+        if (cookieToken && tokensMatch(cookieToken, serverToken)) {
+          authLimiter.recordSuccess(ip);
+          res.writeHead(302, { 'Location': `/${serverToken}/`, 'Cache-Control': 'no-store' });
+          res.end();
+          return;
+        }
+      }
+
       // Require /<6-lowercase-token>/... on every request. Without it, 404
       // (not 401) so the server is indistinguishable from no server at all.
       const tokMatch = url.pathname.match(/^\/([a-z]{6})(\/.*)?$/);
@@ -1530,6 +1589,34 @@ ipcMain.handle('server:info', () => {
     url: `http://${ip}:${PORT}/${serverToken}/`,
     running: !!server,
   };
+});
+
+// Pairing code (#34): peek issues a fresh code only when there isn't a
+// live one — otherwise the same code is returned with its remaining TTL,
+// so the renderer can poll without rotating the user out from under
+// themselves. rotate forces a new code (e.g. user typed it wrong on the
+// Kindle and wants to start over).
+function pairInfoPayload() {
+  let entry = pairStore.peek();
+  if (!entry) {
+    const code = pairStore.issue();
+    entry = pairStore.peek();
+    if (!entry) entry = { code, expiresAt: Date.now() + PAIR_TTL_MS };
+  }
+  const ip = getLocalIP();
+  return {
+    code: entry.code,
+    expiresAt: entry.expiresAt,
+    ttlMs: PAIR_TTL_MS,
+    pairUrl: `http://${ip}:${PORT}/pair/${entry.code}`,
+  };
+}
+
+ipcMain.handle('pair:current', () => pairInfoPayload());
+
+ipcMain.handle('pair:rotate', () => {
+  pairStore.issue();
+  return pairInfoPayload();
 });
 
 // ---------- Calibre detection ----------
