@@ -21,7 +21,11 @@ function sniffImageType(buf) {
 }
 
 // Returns one of:
-//   { status: 404, body }                  — no match for this route, or missing cover
+//   null                                   — subPath does not match /cover/<hex>;
+//                                            caller should keep matching routes
+//   { status: 404, body }                  — matched, but cover is missing
+//                                            (no entry, no cover field, or file
+//                                            not on disk)
 //   { status: 304, headers }               — client has the current copy
 //   { status: 200, body: Buffer, headers } — image bytes
 //
