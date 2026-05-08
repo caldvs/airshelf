@@ -58,6 +58,17 @@ describe('validateUploadRequest', () => {
     expect(r.message).toBe('Not found');
   });
 
+  it('non-loopback + non-POST stays a stealth 404 (does not leak route existence)', () => {
+    // Loopback check must run before the method check; otherwise a LAN
+    // caller could probe with GET and learn the route exists from the 405.
+    expect(call({ remoteAddress: '10.0.0.5', method: 'GET' })).toEqual({
+      ok: false,
+      status: 404,
+      message: 'Not found',
+    });
+    expect(call({ remoteAddress: '192.168.1.10', method: 'OPTIONS' }).status).toBe(404);
+  });
+
   it('accepts ::1 and IPv4-mapped loopback addresses', () => {
     expect(call({ remoteAddress: '::1' }).ok).toBe(true);
     expect(call({ remoteAddress: '::ffff:127.0.0.1' }).ok).toBe(true);

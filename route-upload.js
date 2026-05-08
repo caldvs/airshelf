@@ -28,14 +28,15 @@ function validateUploadRequest({
   isSafeBasename,
   isLoopback,
 }) {
+  // Loopback gate runs FIRST and applies regardless of method, so a LAN
+  // caller can't probe the route's existence by sending a non-POST and
+  // observing a 405 vs. nothing. Stealth 404 matches the rest of the
+  // server's "no service here" posture.
+  if (!isLoopback(remoteAddress)) {
+    return { ok: false, status: 404, message: 'Not found' };
+  }
   if (method !== 'POST') {
     return { ok: false, status: 405, message: 'Method not allowed.' };
-  }
-  if (!isLoopback(remoteAddress)) {
-    // Stealth 404 to match the rest of the server's "no service here"
-    // posture; LAN attackers shouldn't be able to discover that this
-    // route exists at all.
-    return { ok: false, status: 404, message: 'Not found' };
   }
   const filename = (headers['x-filename'] || '').toString();
   if (!filename || filename.length > MAX_FILENAME_LEN || !isSafeBasename(filename)) {
