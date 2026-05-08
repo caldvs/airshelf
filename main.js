@@ -271,6 +271,7 @@ const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./a
 const { authoriseRequest } = require('./route-auth.js');
 const { handleCoverRequest } = require('./route-cover.js');
 const { parseRangeHeader } = require('./route-range.js');
+const { prepareDownloadResponse } = require('./route-download.js');
 const authLimiter = new FailedAuthLimiter();
 
 let mainWindow = null;
@@ -1294,33 +1295,19 @@ function startServer() {
         }
         return;
       }
-      // Match Bookify's URL pattern: /download/<id> with no extension.
-      // PW3's experimental browser pre-checks URL extensions against a
-      // whitelist; by omitting the extension entirely, we bypass that check
-      // and let Content-Disposition set the filename instead.
-      const dlMatch = subPath.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/i);
-      if (dlMatch) {
-        const id = dlMatch[1];
-        const book = listBooks().find(b => b.id === id);
-        if (!book) { res.writeHead(404); res.end('Not found'); return; }
-        const filePath = path.join(booksDir, book.file);
-        const stat = fs.statSync(filePath);
-        const baseName = (book.title || 'book').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 80);
-        const downloadName = `${baseName}.${book.ext}`;
-        // Matches Bookify's response shape exactly: octet-stream +
-        // attachment disposition with the real .azw3 filename. Swapping
-        // Content-Type to application/vnd.amazon.ebook is what triggers
-        // Kindle's "experimental browser cannot download this kind of
-        // file" error, even though the filename extension is identical.
-        res.writeHead(200, {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': stat.size,
-          'Content-Disposition': `attachment; filename="${downloadName}"`,
-        });
-        const dlStream = fs.createReadStream(filePath);
+      const dlDecision = prepareDownloadResponse({ subPath, books: listBooks(), booksDir });
+      if (dlDecision) {
+        if (dlDecision.status !== 200) {
+          res.writeHead(dlDecision.status);
+          res.end(dlDecision.body);
+          return;
+        }
+        const stat = fs.statSync(dlDecision.filePath);
+        res.writeHead(200, { ...dlDecision.headers, 'Content-Length': stat.size });
         // Kindle aborts mid-download more than you'd expect (sleep, network
-        // flap). Without this, the read stream keeps pumping until EOF —
-        // wasting CPU and holding an FD until GC.
+        // flap). pipeStreamToResponse destroys the read stream on req close
+        // so we don't keep pumping bytes to a dead socket.
+        const dlStream = fs.createReadStream(dlDecision.filePath);
         pipeStreamToResponse(dlStream, req, res);
         return;
       }
