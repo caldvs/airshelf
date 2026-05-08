@@ -63,6 +63,7 @@
       "safety.js",
       "hash.js",
       "concurrency.js",
+      "utils.js",
       "backup.js",
       "calibre.js",
       "openlibrary.js",
