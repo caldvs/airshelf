@@ -95,6 +95,28 @@ describe('PairCodeStore', () => {
     expect(s.peek()).toBeNull();
   });
 
+  it('issue() normalizes lowercase generator output to uppercase', () => {
+    const clock = fakeClock();
+    const s = new PairCodeStore({
+      ttlMs: 60_000,
+      now: clock.now,
+      generator: () => 'acde', // lowercase, would be unconsumable without normalisation
+    });
+    const code = s.issue();
+    expect(code).toBe('ACDE');
+    expect(s.consume('acde')).toBe(true); // case-insensitive consume still works
+  });
+
+  it('issue() throws on a generator that returns garbage', () => {
+    const clock = fakeClock();
+    const s = new PairCodeStore({
+      ttlMs: 60_000,
+      now: clock.now,
+      generator: () => '0OIL', // banned characters
+    });
+    expect(() => s.issue()).toThrow(/invalid code/);
+  });
+
   it('consume() rejects malformed input without throwing', () => {
     const clock = fakeClock();
     const s = new PairCodeStore({ ttlMs: 60_000, now: clock.now });

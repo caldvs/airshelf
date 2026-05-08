@@ -45,7 +45,14 @@ class PairCodeStore {
   // server's exposure to brute-force attempts during the TTL.
   issue() {
     this.codes.clear();
-    const code = this.generator();
+    // Normalize+validate the generator's output so a future generator that
+    // returns lowercase (or chars outside the alphabet) can't produce an
+    // unconsumable code — consume() compares against the uppercase PAIR_CODE_RE.
+    const raw = this.generator();
+    const code = typeof raw === 'string' ? raw.toUpperCase() : '';
+    if (!PAIR_CODE_RE.test(code)) {
+      throw new Error(`PairCodeStore generator returned invalid code: ${JSON.stringify(raw)}`);
+    }
     this.codes.set(code, this.now() + this.ttlMs);
     return code;
   }
