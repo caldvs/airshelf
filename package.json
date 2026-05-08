@@ -65,7 +65,6 @@
       "route-cover.js",
       "route-index.js",
       "route-epub.js",
-      "route-download.js",
       "route-upload.js",
       "renderer/**/*",
       "build/icon.icns",

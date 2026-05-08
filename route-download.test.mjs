@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
-import { DOWNLOAD_PATH_RE, sanitiseBaseName, prepareDownloadResponse } from './route-download.js';
+import {
+  DOWNLOAD_PATH_RE,
+  sanitiseBaseName,
+  prepareDownloadResponse,
+} from './out/server/routes/download.js';
 
 describe('DOWNLOAD_PATH_RE', () => {
   it('matches /download/<hex>', () => {
