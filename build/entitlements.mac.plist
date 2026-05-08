@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Hardened Runtime is required for notarization (#43). The two
+       network entitlements let the app act as both client (Open Library
+       lookups, cover downloads) and server (LAN HTTP for Kindle). -->
+  <key>com.apple.security.app-sandbox</key>
+  <false/>
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <key>com.apple.security.network.server</key>
+  <true/>
+  <!-- Electron + V8 need these to JIT compile JavaScript under
+       Hardened Runtime. Without them the renderer crashes on launch. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Read user-selected files (drag-drop / Open dialog for ebooks) and
+       run helpers (Calibre's ebook-convert) without re-signing. -->
+  <key>com.apple.security.files.user-selected.read-only</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

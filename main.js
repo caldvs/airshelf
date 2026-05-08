@@ -39,7 +39,7 @@ const PORT = parseInt(process.env.PORT, 10) || 6790;
 
 // Files the Kindle experimental browser can download directly
 const { normalizeKindleMetadata } = require('./inject-asin.js');
-const { titlesMatch, cleanTitle, guessAuthorFromFilename } = require('./titles.js');
+const { titlesMatch, cleanTitle, extractSeries, guessAuthorFromFilename } = require('./titles.js');
 
 const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us
@@ -272,6 +272,7 @@ const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handleCoverRequest } = require('./route-cover.js');
 const { parseRangeHeader } = require('./route-range.js');
+const { prepareDownloadResponse } = require('./route-download.js');
 
 // Scan the Cookie header for any host-only `airshelf_token` value matching the
 // current server token. Browsers can send duplicate cookie names (for example
@@ -631,7 +632,22 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
   // path.basename's second argument is case-sensitive.
   const rawBase = path.basename(displayName, path.extname(displayName));
   if (!title) title = rawBase;
-  title = cleanTitle(title);
+  // Extract series before cleanTitle strips the parenthetical — extractSeries
+  // returns the cleaned title plus any `(Series #N)` info found in the raw form.
+  const seriesInfo = extractSeries(title);
+  title = seriesInfo.title;
+  let series = seriesInfo.series;
+  let seriesIndex = seriesInfo.seriesIndex;
+  // Also try the filename if the title-derived path had no parenthetical —
+  // file metadata sometimes stores a clean title while the filename keeps the
+  // series marker.
+  if (!series) {
+    const fromFile = extractSeries(rawBase);
+    if (fromFile.series) {
+      series = fromFile.series;
+      seriesIndex = fromFile.seriesIndex;
+    }
+  }
   if (!author) author = guessAuthorFromFilename(rawBase);
   if (author) author = author.replace(/\s+/g, ' ').trim();
 
@@ -725,6 +741,8 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
     title,
     author,
     year,
+    series,
+    seriesIndex,
     originalName: displayName,
     originalFile: originalFileName,
     file: kindleFile,          // what we serve to the Kindle
@@ -789,6 +807,28 @@ async function migrateExistingBooks() {
     } catch {}
   }
   if (changed) saveMeta(meta);
+
+  // Backfill series + seriesIndex from the original filename for books
+  // added before #42. The fields default to null; only books where they
+  // are still undefined (predate the schema) get touched, so a manual
+  // null doesn't get re-derived. originalName preserves the raw filename
+  // including the (Series #N) parenthetical, so we extract from there.
+  let seriesChanged = false;
+  for (const book of meta.books) {
+    if (book.series !== undefined) continue;
+    book.series = null;
+    book.seriesIndex = null;
+    const source = book.originalName || book.title;
+    if (source) {
+      const info = extractSeries(source);
+      if (info.series) {
+        book.series = info.series;
+        book.seriesIndex = info.seriesIndex;
+      }
+    }
+    seriesChanged = true;
+  }
+  if (seriesChanged) saveMeta(meta);
 
   for (const book of meta.books) {
     const ext = `.${book.ext}`;
@@ -1471,33 +1511,19 @@ function startServer() {
         }
         return;
       }
-      // Match Bookify's URL pattern: /download/<id> with no extension.
-      // PW3's experimental browser pre-checks URL extensions against a
-      // whitelist; by omitting the extension entirely, we bypass that check
-      // and let Content-Disposition set the filename instead.
-      const dlMatch = subPath.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/i);
-      if (dlMatch) {
-        const id = dlMatch[1];
-        const book = listBooks().find(b => b.id === id);
-        if (!book) { res.writeHead(404); res.end('Not found'); return; }
-        const filePath = path.join(booksDir, book.file);
-        const stat = fs.statSync(filePath);
-        const baseName = (book.title || 'book').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 80);
-        const downloadName = `${baseName}.${book.ext}`;
-        // Matches Bookify's response shape exactly: octet-stream +
-        // attachment disposition with the real .azw3 filename. Swapping
-        // Content-Type to application/vnd.amazon.ebook is what triggers
-        // Kindle's "experimental browser cannot download this kind of
-        // file" error, even though the filename extension is identical.
-        res.writeHead(200, {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': stat.size,
-          'Content-Disposition': `attachment; filename="${downloadName}"`,
-        });
-        const dlStream = fs.createReadStream(filePath);
+      const dlDecision = prepareDownloadResponse({ subPath, books: listBooks(), booksDir });
+      if (dlDecision) {
+        if (dlDecision.status !== 200) {
+          res.writeHead(dlDecision.status);
+          res.end(dlDecision.body);
+          return;
+        }
+        const stat = fs.statSync(dlDecision.filePath);
+        res.writeHead(200, { ...dlDecision.headers, 'Content-Length': stat.size });
         // Kindle aborts mid-download more than you'd expect (sleep, network
-        // flap). Without this, the read stream keeps pumping until EOF —
-        // wasting CPU and holding an FD until GC.
+        // flap). pipeStreamToResponse destroys the read stream on req close
+        // so we don't keep pumping bytes to a dead socket.
+        const dlStream = fs.createReadStream(dlDecision.filePath);
         pipeStreamToResponse(dlStream, req, res);
         return;
       }
@@ -1640,11 +1666,68 @@ app.whenReady().then(() => {
   startServer();
   createWindow();
   migrateExistingBooks().catch(e => console.error('migration error', e));
+  scheduleAutoUpdates();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// Auto-update via electron-updater + GitHub Releases. The packaged app
+// checks once on launch and every 24h after, downloads in the background,
+// and prompts the user to relaunch when a build is ready. No-op when run
+// via `npm start` because electron-updater throws on dev because there's
+// no signed code to compare against.
+function scheduleAutoUpdates() {
+  if (!app.isPackaged) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (e) {
+    console.warn('[updater] electron-updater missing, skipping:', e.message);
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Push update events to the renderer so it can render a non-blocking
+  // toast (the issue's "non-blocking Update available toast in-app").
+  // If no window is up yet, the event is dropped — the next periodic
+  // check will resurface the same update.
+  function notifyRenderer(channel, payload) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.webContents.send(channel, payload); } catch {}
+    }
+  }
+
+  autoUpdater.on('error', (e) => console.warn('[updater] error:', e?.message || e));
+  autoUpdater.on('update-available', (info) => {
+    console.log('[updater] update available:', info?.version);
+    notifyRenderer('updater:available', { version: info?.version });
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[updater] update downloaded:', info?.version);
+    notifyRenderer('updater:downloaded', { version: info?.version });
+  });
+
+  // Renderer-initiated relaunch — fired by the toast's "Restart" button.
+  // quitAndInstall false-false skips the prompt + reopens the app.
+  ipcMain.handle('updater:install', () => {
+    try { autoUpdater.quitAndInstall(false, true); } catch (e) {
+      console.warn('[updater] quitAndInstall failed:', e?.message || e);
+    }
+  });
+
+  autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+    console.warn('[updater] initial check failed:', e?.message || e);
+  });
+  // Re-check daily for long-lived sessions.
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((e) => {
+      console.warn('[updater] periodic check failed:', e?.message || e);
+    });
+  }, 24 * 60 * 60 * 1000);
+}
 
 app.on('window-all-closed', () => {
   stopMdns();
