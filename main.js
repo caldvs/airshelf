@@ -6,6 +6,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
+const { Bonjour } = require('bonjour-service');
 const { hashFileSha1 } = require('./hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
 
@@ -267,21 +268,22 @@ const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./s
 const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
+const { authoriseRequest } = require('./route-auth.js');
+const { handleCoverRequest } = require('./route-cover.js');
 
-// Pull `airshelf_token=<token>` from a Cookie header value. Spec parsing is
-// overkill here (we only ever set this single cookie) but we skip whitespace
-// and stop at the first match so an attacker-controlled extra cookie can't
-// shadow ours by ordering tricks.
-function parseCookieToken(header) {
-  if (!header || typeof header !== 'string') return null;
+// Scan the Cookie header for any host-only `airshelf_token` value matching the
+// current server token. Browsers can send duplicate cookie names (for example
+// differing Path scopes), so callers shouldn't trust first/last ordering.
+function hasMatchingCookieToken(header, expectedToken) {
+  if (!header || typeof header !== 'string') return false;
   for (const piece of header.split(';')) {
     const eq = piece.indexOf('=');
     if (eq < 0) continue;
     const name = piece.slice(0, eq).trim();
     if (name !== 'airshelf_token') continue;
-    return piece.slice(eq + 1).trim();
+    if (tokensMatch(piece.slice(eq + 1).trim(), expectedToken)) return true;
   }
-  return null;
+  return false;
 }
 const authLimiter = new FailedAuthLimiter();
 
@@ -292,6 +294,10 @@ let metaFile = null;
 let serverToken = null;
 const pairStore = new PairCodeStore();
 let settingsFile = null;
+let bonjour = null;
+// Stable hostname registered over mDNS. Resolves to `airshelf.local` on the
+// LAN, so the Kindle browser doesn't need the Mac's ever-changing DHCP IP.
+const MDNS_HOST = 'airshelf';
 
 // ---------- Settings (small key/value store, separate from books.json) ----------
 //
@@ -1246,12 +1252,13 @@ function startServer() {
 
   server = http.createServer(async (req, res) => {
     const ip = req.socket.remoteAddress || 'unknown';
+    // Short-circuit blocked IPs BEFORE parsing the URL so a malformed
+    // req.url can't tip a blocked client into the catch path's 500
+    // response — that would break the stealth-404 behavior.
+    if (authLimiter.isBlocked(ip)) {
+      res.writeHead(404); res.end('Not found'); return;
+    }
     try {
-      // Per-IP rate limit: with a 6-char token (~20 bits), throttling is what
-      // keeps brute-force impractical. Block returns 404 (stealth) not 429.
-      if (authLimiter.isBlocked(ip)) {
-        res.writeHead(404); res.end('Not found'); return;
-      }
       const url = new URL(req.url, `http://${req.headers.host}`);
 
       // Pairing flow (#34): /pair/<CODE> validates a short, single-use code
@@ -1285,8 +1292,7 @@ function startServer() {
       // /<token>/ entry point. Lets the user bookmark http://<lan-ip>:PORT/
       // instead of the longer token URL.
       if (url.pathname === '/' || url.pathname === '') {
-        const cookieToken = parseCookieToken(req.headers.cookie);
-        if (cookieToken && tokensMatch(cookieToken, serverToken)) {
+        if (hasMatchingCookieToken(req.headers.cookie, serverToken)) {
           authLimiter.recordSuccess(ip);
           res.writeHead(302, { 'Location': `/${serverToken}/`, 'Cache-Control': 'no-store' });
           res.end();
@@ -1294,15 +1300,20 @@ function startServer() {
         }
       }
 
-      // Require /<6-lowercase-token>/... on every request. Without it, 404
-      // (not 401) so the server is indistinguishable from no server at all.
-      const tokMatch = url.pathname.match(/^\/([a-z]{6})(\/.*)?$/);
-      if (!tokMatch || !tokensMatch(tokMatch[1], serverToken)) {
-        authLimiter.recordFail(ip);
-        res.writeHead(404); res.end('Not found'); return;
+      // Token + per-IP rate-limit gate. See route-auth.js for the rules; a
+      // bad/missing token returns a stealth 404 (not 401) so the server is
+      // indistinguishable from no server at all to a port-scan.
+      const auth = authoriseRequest({
+        pathname: url.pathname,
+        ip,
+        expectedToken: serverToken,
+        limiter: authLimiter,
+        tokensMatch,
+      });
+      if (!auth.allow) {
+        res.writeHead(auth.status); res.end('Not found'); return;
       }
-      authLimiter.recordSuccess(ip);
-      const subPath = tokMatch[2] || '/';
+      const subPath = auth.subPath;
       if (subPath === '/screenshot') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -1321,42 +1332,21 @@ function startServer() {
         res.end(renderIndexHtml());
         return;
       }
-      const coverMatch = subPath.match(/^\/cover\/([a-f0-9]+)$/);
-      if (coverMatch) {
-        const id = coverMatch[1];
-        const book = listBooks().find(b => b.id === id);
-        if (!book || !book.cover) { res.writeHead(404); res.end('No cover'); return; }
-        const coverPath = path.join(booksDir, book.cover);
-        if (!fs.existsSync(coverPath)) { res.writeHead(404); res.end('Missing'); return; }
-        const stat = fs.statSync(coverPath);
-        const etag = `"${id}-${stat.size}-${Math.floor(stat.mtimeMs)}"`;
-        const lastModified = stat.mtime.toUTCString();
-
-        // 304 if the client already has it
-        if (req.headers['if-none-match'] === etag ||
-            req.headers['if-modified-since'] === lastModified) {
-          res.writeHead(304, {
-            'ETag': etag,
-            'Cache-Control': 'public, max-age=2592000, immutable',
-          });
+      const coverDecision = handleCoverRequest({
+        subPath,
+        books: listBooks(),
+        booksDir,
+        ifNoneMatch: req.headers['if-none-match'],
+        ifModifiedSince: req.headers['if-modified-since'],
+      });
+      if (coverDecision) {
+        if (coverDecision.body !== undefined) {
+          res.writeHead(coverDecision.status, coverDecision.headers || {});
+          res.end(coverDecision.body);
+        } else {
+          res.writeHead(coverDecision.status, coverDecision.headers || {});
           res.end();
-          return;
         }
-
-        const buf = fs.readFileSync(coverPath);
-        // sniff image type
-        let type = 'image/jpeg';
-        if (buf[0] === 0x89 && buf[1] === 0x50) type = 'image/png';
-        else if (buf[0] === 0x47 && buf[1] === 0x49) type = 'image/gif';
-        res.writeHead(200, {
-          'Content-Type': type,
-          'Content-Length': buf.length,
-          'Cache-Control': 'public, max-age=2592000, immutable',
-          'ETag': etag,
-          'Last-Modified': lastModified,
-          'Expires': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString(),
-        });
-        res.end(buf);
         return;
       }
       // Match Bookify's URL pattern: /download/<id> with no extension.
@@ -1463,7 +1453,47 @@ function startServer() {
       res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
     }
   });
-  server.listen(PORT, '0.0.0.0');
+  // Start mDNS only once `listen` actually succeeds — listen is async and
+  // we don't want to advertise a hostname that isn't accepting connections
+  // yet (or at all, if listen errors out). On error, undo any advertise
+  // that may have happened on a retry path.
+  server.listen(PORT, '0.0.0.0', () => startMdns());
+  server.on('error', (e) => {
+    console.error('[server] listen error', e);
+    stopMdns();
+  });
+}
+
+// Advertise the HTTP server over mDNS as `airshelf._http._tcp.local.` and
+// register an A record for `airshelf.local` pointing at this machine. Lets
+// the Kindle's browser hit `http://airshelf.local:6790/<token>/` instead of
+// a typed-in DHCP IP that drifts across reconnects. Failures are logged
+// and swallowed — the IP-based URL still works as a fallback.
+function startMdns() {
+  if (bonjour) return;
+  try {
+    bonjour = new Bonjour();
+    bonjour.publish({
+      name: 'Airshelf',
+      type: 'http',
+      port: PORT,
+      host: MDNS_HOST,
+    });
+  } catch (e) {
+    console.warn('[mdns] publish failed:', e.message);
+    bonjour = null;
+  }
+}
+
+function stopMdns() {
+  if (!bonjour) return;
+  // Capture the instance *before* nulling the global so the unpublishAll
+  // callback can still call destroy() — without this, the closure reads
+  // the (now null) global and the mDNS sockets are never torn down,
+  // which means goodbye packets aren't sent.
+  const b = bonjour;
+  bonjour = null;
+  try { b.unpublishAll(() => b.destroy()); } catch {}
 }
 
 // ---------- Electron ----------
@@ -1496,6 +1526,9 @@ app.whenReady().then(() => {
   settingsFile = path.join(userData, 'settings.json');
   serverToken = loadOrCreateServerToken(userData);
 
+  // startServer() also wires startMdns() into the `listening` callback so
+  // we don't advertise a hostname before the HTTP server is accepting
+  // connections.
   startServer();
   createWindow();
   migrateExistingBooks().catch(e => console.error('migration error', e));
@@ -1506,9 +1539,14 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  stopMdns();
   if (server) { server.close(); server = null; }
   if (process.platform !== 'darwin') app.quit();
 });
+
+// Send mDNS goodbye packets before exit so the LAN sees the service drop
+// immediately instead of waiting for the TTL to expire.
+app.on('before-quit', stopMdns);
 
 // ---------- IPC ----------
 
@@ -1582,11 +1620,14 @@ ipcMain.handle('books:delete', (_e, id) => deleteBook(id));
 
 ipcMain.handle('server:info', () => {
   const ip = getLocalIP();
+  const mdnsHost = bonjour ? `${MDNS_HOST}.local` : null;
   return {
     ip,
     port: PORT,
     token: serverToken,
     url: `http://${ip}:${PORT}/${serverToken}/`,
+    mdnsHost,
+    mdnsUrl: mdnsHost ? `http://${mdnsHost}:${PORT}/${serverToken}/` : null,
     running: !!server,
   };
 });

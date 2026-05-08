@@ -294,13 +294,22 @@ const pairUrlEl = document.getElementById('pair-url');
 const pairBareUrlEl = document.getElementById('pair-bare-url');
 const pairTtlEl = document.getElementById('pair-ttl');
 const pairRotateBtn = document.getElementById('pair-rotate');
+const serverUrlFallbackEl = document.getElementById('server-url-fallback');
+const urlFallbackEl = document.getElementById('url-fallback');
 
 async function loadServerInfo() {
   const info = await window.airshelf.serverInfo();
-  serverUrlEl.textContent = info.url;
+  if (info.mdnsUrl) {
+    serverUrlEl.textContent = info.mdnsUrl;
+    serverUrlFallbackEl.textContent = info.url;
+    urlFallbackEl.classList.remove('hidden');
+  } else {
+    serverUrlEl.textContent = info.url;
+    serverUrlFallbackEl.textContent = '';
+    urlFallbackEl.classList.add('hidden');
+  }
   // Bare URL the user can bookmark on their Kindle once paired — derived
-  // here rather than coming back from the IPC payload because it's just
-  // a trim of info.url.
+  // from the IP host because the pairing cookie is host-only.
   if (pairBareUrlEl) pairBareUrlEl.textContent = `http://${info.ip}:${info.port}/`;
 }
 
@@ -388,6 +397,9 @@ async function refreshPairCode({ forceRotate = false } = {}) {
       ? await window.airshelf.pairRotate()
       : await window.airshelf.pairCurrent();
   } catch (e) {
+    if (pairTtlTimer) clearInterval(pairTtlTimer);
+    pairTtlTimer = null;
+    pairCurrentExpiresAt = 0;
     pairUrlEl.textContent = 'pair unavailable';
     pairTtlEl.textContent = '';
     showToast(`Pair code failed: ${e.message}`, 'error');
