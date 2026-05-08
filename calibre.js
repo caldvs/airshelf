@@ -28,39 +28,46 @@ function readCalibreLibrary(libraryRoot) {
   if (!fs.existsSync(dbPath)) {
     throw new Error(`No metadata.db at ${dbPath} — pick a Calibre library root.`);
   }
+  // Resolve once so we can do containment checks on every assembled file
+  // path. A tampered metadata.db could put `..` segments or absolute paths
+  // in `books.path` / `data.name`; we MUST NOT import files outside the
+  // library root the user picked.
+  const root = path.resolve(libraryRoot);
   // readonly + fileMustExist: never write back, never auto-create.
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
-    // Single query joins books → data → authors so we don't N+1. The schema
-    // has been stable for years, but we still wrap in try/catch on the
-    // outer caller side — a Calibre upgrade could rename a column.
+    // Authors come from a correlated subquery rather than a JOIN so we
+    // produce exactly one row per (book, format), not one per co-author.
+    // The subquery's `ORDER BY bal.id ASC` makes the picked author
+    // deterministic — Calibre inserts in primary-author-first order, so
+    // this gives us the same author every run regardless of SQL plan.
     const rows = db.prepare(`
       SELECT
-        b.id        AS bookId,
-        b.title     AS title,
-        b.path      AS bookPath,
-        d.format    AS format,
-        d.name      AS dataName,
-        a.name      AS author
+        b.id     AS bookId,
+        b.title  AS title,
+        b.path   AS bookPath,
+        d.format AS format,
+        d.name   AS dataName,
+        (
+          SELECT a.name
+          FROM authors a
+          JOIN books_authors_link bal ON bal.author = a.id
+          WHERE bal.book = b.id
+          ORDER BY bal.id ASC
+          LIMIT 1
+        ) AS author
       FROM books b
       JOIN data d ON d.book = b.id
-      LEFT JOIN books_authors_link bal ON bal.book = b.id
-      LEFT JOIN authors a ON a.id = bal.author
       WHERE d.format IN ('AZW3', 'MOBI', 'EPUB')
+      ORDER BY b.id ASC
     `).all();
 
-    // Pick the best format per book. Calibre's books_authors_link can produce
-    // multiple rows per (book, format) when there are co-authors; we keep
-    // the first author seen and ignore later duplicates.
+    // Pick the best format per book.
     const byBook = new Map();
     for (const row of rows) {
-      const existing = byBook.get(row.bookId);
       const priority = FORMAT_PRIORITY.indexOf(row.format);
       if (priority < 0) continue;
-      if (existing && row.bookId === existing.bookId && existing.author && !row.author) {
-        // Same book, additional row without author info — keep existing.
-        continue;
-      }
+      const existing = byBook.get(row.bookId);
       const existingPriority = existing ? FORMAT_PRIORITY.indexOf(existing.format) : Infinity;
       if (!existing || priority < existingPriority) {
         byBook.set(row.bookId, row);
@@ -69,11 +76,16 @@ function readCalibreLibrary(libraryRoot) {
 
     const out = [];
     for (const row of byBook.values()) {
-      const filePath = path.join(
-        libraryRoot,
+      const filePath = path.resolve(
+        root,
         row.bookPath,
         `${row.dataName}.${row.format.toLowerCase()}`,
       );
+      // Containment check. `path.resolve` normalises out `..` segments and
+      // honours absolute components, so a malicious row like `bookPath: "../etc"`
+      // or `dataName: "/etc/passwd"` would resolve outside `root` here. Skip
+      // anything that doesn't sit strictly under the picked library root.
+      if (filePath !== root && !filePath.startsWith(root + path.sep)) continue;
       out.push({
         title: row.title || path.basename(row.bookPath),
         author: row.author || null,

@@ -173,4 +173,43 @@ describe('readCalibreLibrary', () => {
     expect(books).toHaveLength(1);
     expect(books[0].author).toBeNull();
   });
+
+  it('skips books whose resolved file path escapes the library root', () => {
+    // Tampered metadata.db that points "outside" the picked library root.
+    // None of these should appear in the import list.
+    libDir = buildLibrary([
+      {
+        id: 1,
+        title: 'Parent escape',
+        bookPath: '../outside',
+        author: 'Mallory',
+        formats: [{ format: 'EPUB', name: 'evil' }],
+      },
+      {
+        id: 2,
+        title: 'Absolute path',
+        bookPath: '/etc',
+        author: 'Mallory',
+        formats: [{ format: 'EPUB', name: 'passwd' }],
+      },
+      {
+        id: 3,
+        title: 'Inner escape via name',
+        bookPath: 'Author/Book (3)',
+        // 3 ../ segments out of a 2-deep bookPath escapes root.
+        author: 'Mallory',
+        formats: [{ format: 'EPUB', name: '../../../escaped' }],
+      },
+      {
+        id: 4,
+        title: 'Legit',
+        bookPath: 'Author/Legit (4)',
+        author: 'Author',
+        formats: [{ format: 'EPUB', name: 'Legit' }],
+      },
+    ]);
+
+    const books = readCalibreLibrary(libDir);
+    expect(books.map(b => b.title)).toEqual(['Legit']);
+  });
 });
