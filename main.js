@@ -625,8 +625,11 @@ async function addBook(srcPath, displayName = path.basename(srcPath)) {
   }
   // Fall back to the filename and clean it up. We strip from displayName
   // (not srcPath) so the /upload route's randomised staging filename
-  // doesn't leak into the title.
-  const rawBase = path.basename(displayName, ext);
+  // doesn't leak into the title. Use path.extname(displayName) for the
+  // strip so a mixed-case extension (e.g. "BOOK.EPUB") is removed even
+  // though the lowercased `ext` we computed earlier doesn't match —
+  // path.basename's second argument is case-sensitive.
+  const rawBase = path.basename(displayName, path.extname(displayName));
   if (!title) title = rawBase;
   title = cleanTitle(title);
   if (!author) author = guessAuthorFromFilename(rawBase);
