@@ -93,6 +93,16 @@ describe('prepareDownloadResponse', () => {
     );
   });
 
+  it('lowercases the URL id before lookup (route regex is case-insensitive)', () => {
+    const r = prepareDownloadResponse({
+      subPath: '/download/ABC123',
+      books,
+      booksDir: '/lib',
+    });
+    expect(r.status).toBe(200);
+    expect(r.filePath).toBe(path.join('/lib', 'abc123.azw3'));
+  });
+
   it('accepts the legacy /download/<id>.<ext> form and ignores the extension', () => {
     const r = prepareDownloadResponse({
       subPath: '/download/abc123.zip',

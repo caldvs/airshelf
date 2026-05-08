@@ -28,7 +28,10 @@ function sanitiseBaseName(title) {
 function prepareDownloadResponse({ subPath, books, booksDir }) {
   const m = subPath.match(DOWNLOAD_PATH_RE);
   if (!m) return null;
-  const id = m[1];
+  // Route regex is case-insensitive; book ids are generated lowercase hex.
+  // Lowercase before lookup so /download/ABC123 doesn't 404 from a wrongly-
+  // cased URL.
+  const id = m[1].toLowerCase();
   const book = books.find((b) => b.id === id);
   if (!book) return { status: 404, body: 'Not found' };
   const filePath = path.join(booksDir, book.file);
