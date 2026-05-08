@@ -270,6 +270,7 @@ const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, rotateServerToken, FailedAuthLimiter } = require('./auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
+const { handlePairRequest } = require('./route-pair.js');
 const { humanSize, escapeHtml, getLocalIP } = require('./utils.js');
 const { handleCoverRequest } = require('./route-cover.js');
 const { renderShelfHtml } = require('./route-index.js');
@@ -1070,30 +1071,29 @@ function startServer() {
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
 
-      // Pairing flow (#34): /pair/<CODE> validates a short, single-use code
-      // and sets a long-lived cookie carrying the server token. The cookie
-      // path itself doesn't expose listBook/cover routes — those still
-      // require the /<token>/ prefix — but it lets the user reach the
-      // library from a bare-URL bookmark.
-      const pairMatch = url.pathname.match(/^\/pair\/([^/]+)\/?$/);
-      if (pairMatch) {
-        if (pairStore.consume(pairMatch[1])) {
+      // Pairing flow (#34): the path-shape match, single-use code consume,
+      // and redirect/cookie payload all live in route-pair.js for unit
+      // testability. We keep the rate-limit + writeHead glue here so the
+      // pure module stays free of Node-server coupling (mirrors how
+      // route-auth.js is structured).
+      const pairResult = handlePairRequest({
+        pathname: url.pathname,
+        pairStore,
+        serverToken,
+      });
+      if (pairResult) {
+        if (pairResult.ok) {
           authLimiter.recordSuccess(ip);
-          // 1 year is well past the practical lifetime of the running app
-          // and matches "rotate token to revoke" rather than "expire cookie
-          // independently". HttpOnly because the renderer doesn't need
-          // cookie access; SameSite=Lax so the redirect from /pair/:code
-          // still attaches the cookie on the followup request.
           res.writeHead(302, {
-            'Location': `/${serverToken}/`,
-            'Set-Cookie': `airshelf_token=${serverToken}; Max-Age=31536000; HttpOnly; SameSite=Lax; Path=/`,
+            'Location': pairResult.location,
+            'Set-Cookie': pairResult.setCookie,
             'Cache-Control': 'no-store',
           });
           res.end();
           return;
         }
         authLimiter.recordFail(ip);
-        res.writeHead(404); res.end('Not found'); return;
+        res.writeHead(pairResult.status); res.end('Not found'); return;
       }
 
       // Bare-URL fallback (post-pair): if the request has no /<token>/

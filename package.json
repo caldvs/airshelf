@@ -72,6 +72,7 @@
       "route-index.js",
       "route-range.js",
       "route-download.js",
+      "route-pair.js",
       "renderer/**/*",
       "build/icon.icns",
       "build/icon_256.png",
