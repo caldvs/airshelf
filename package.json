@@ -38,6 +38,7 @@
       "hash.js",
       "concurrency.js",
       "backup.js",
+      "calibre.js",
       "route-auth.js",
       "route-cover.js",
       "renderer/**/*",

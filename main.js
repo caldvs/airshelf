@@ -9,6 +9,7 @@ const AdmZip = require('adm-zip');
 const { Bonjour } = require('bonjour-service');
 const { hashFileSha1 } = require('./hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
+const { readCalibreLibrary } = require('./calibre.js');
 
 // FIFO around the two atomic load-then-write blocks in addBook (the
 // dedup check at the start, and the push-to-meta at the end). Concurrent
@@ -1537,10 +1538,48 @@ ipcMain.handle('books:addPaths', async (_e, paths) => {
   return await addManyBooks(paths);
 });
 
-async function addManyBooks(paths) {
+// Bulk-import every supported ebook from a Calibre library. The user
+// picks the library root (a folder containing `metadata.db`), we enumerate
+// books via Calibre's own sqlite, then run them through the regular
+// addBook pipeline so dedup / cover extraction / EXTH normalize all
+// behave identically to a manual drag-drop. Per-book progress events
+// stream to the renderer over the `library:importProgress` channel so
+// the UI can render an X/N counter without blocking on the whole batch.
+ipcMain.handle('library:importCalibre', async () => {
+  const defaultPath = path.join(os.homedir(), 'Calibre Library');
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose your Calibre Library folder',
+    defaultPath: fs.existsSync(defaultPath) ? defaultPath : os.homedir(),
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const libraryRoot = result.filePaths[0];
+
+  let books;
+  try {
+    books = readCalibreLibrary(libraryRoot);
+  } catch (e) {
+    return { error: `Couldn't read Calibre library at ${libraryRoot}: ${e.message}` };
+  }
+  if (books.length === 0) {
+    return { error: 'No AZW3, MOBI or EPUB files found in this Calibre library.' };
+  }
+
+  const out = await addManyBooks(books.map(b => b.filePath), ({ done, total }) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('library:importProgress', { done, total });
+    }
+  });
+
+  if (out.added.length && mainWindow) mainWindow.webContents.send('books:changed');
+  return { ...out, total: books.length };
+});
+
+async function addManyBooks(paths, onProgress) {
   const added = [];
   const errors = [];
   const duplicates = [];
+  let done = 0;
   // Bounded parallelism. Each addBook spawns 1–3 Calibre processes
   // (convert, ebook-meta, sips); 2 in flight = up to ~6 child processes
   // peak, enough to feel snappy on a 10-book drop without thrashing.
@@ -1554,6 +1593,10 @@ async function addManyBooks(paths) {
       else if (result.error) errors.push({ path: path.basename(p), error: result.error });
     } catch (e) {
       errors.push({ path: path.basename(p), error: e.message });
+    }
+    done += 1;
+    if (onProgress) {
+      try { onProgress({ done, total: paths.length }); } catch {}
     }
   });
   return { added, errors, duplicates };
