@@ -8,7 +8,7 @@
     "airshelf": "bin/airshelf.js"
   },
   "scripts": {
-    "compile": "rimraf lib && tsc",
+    "compile": "rimraf out && tsc",
     "prestart": "npm run compile",
     "start": "electron .",
     "prebuild": "npm run compile",
@@ -63,7 +63,7 @@
       "preload.js",
       "inject-asin.js",
       "pair.js",
-      "lib/**/*",
+      "out/**/*",
       "backup.js",
       "calibre.js",
       "openlibrary.js",

@@ -7,8 +7,8 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
 const { Bonjour } = require('bonjour-service');
-const { hashFileSha1 } = require('./lib/hash.js');
-const { mapWithConcurrency, createSerialQueue } = require('./lib/concurrency.js');
+const { hashFileSha1 } = require('./out/lib/hash.js');
+const { mapWithConcurrency, createSerialQueue } = require('./out/lib/concurrency.js');
 const { readCalibreLibrary } = require('./calibre.js');
 
 // FIFO around the two atomic load-then-write blocks in addBook (the
@@ -44,7 +44,7 @@ const {
   cleanTitle,
   extractSeries,
   guessAuthorFromFilename,
-} = require('./lib/titles.js');
+} = require('./out/lib/titles.js');
 
 const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us
@@ -335,19 +335,19 @@ async function getOrBuildReaderEpub(book) {
   return p;
 }
 
-const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./lib/safety.js');
+const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./out/lib/safety.js');
 const { buildManifest, validateBackup } = require('./backup.js');
 const {
   tokensMatch,
   loadOrCreateServerToken,
   rotateServerToken,
   FailedAuthLimiter,
-} = require('./lib/auth.js');
+} = require('./out/domain/auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handlePairRequest } = require('./route-pair.js');
 const { validateUploadRequest, MAX_UPLOAD_BYTES } = require('./route-upload.js');
-const { humanSize, escapeHtml, getLocalIP } = require('./lib/utils.js');
+const { humanSize, escapeHtml, getLocalIP } = require('./out/lib/utils.js');
 const { handleCoverRequest } = require('./route-cover.js');
 const { handleEpubRequest } = require('./route-epub.js');
 const { renderShelfHtml } = require('./route-index.js');

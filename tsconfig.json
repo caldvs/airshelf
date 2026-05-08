@@ -9,7 +9,7 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "outDir": "lib",
+    "outDir": "out",
     "rootDir": "src",
     "sourceMap": true,
     "declaration": false,
@@ -17,5 +17,5 @@
     "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "lib", "src/**/*.test.*", "src/**/*.spec.*"]
+  "exclude": ["node_modules", "dist", "out", "src/**/*.test.*", "src/**/*.spec.*"]
 }

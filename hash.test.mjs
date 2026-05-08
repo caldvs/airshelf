@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { hashFileSha1 } from './lib/hash.js';
+import { hashFileSha1 } from './out/lib/hash.js';
 
 describe('hashFileSha1', () => {
   let dir;
