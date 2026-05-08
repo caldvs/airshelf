@@ -62,7 +62,6 @@
       "main.js",
       "preload.js",
       "out/**/*",
-      "route-cover.js",
       "route-index.js",
       "route-epub.js",
       "renderer/**/*",
