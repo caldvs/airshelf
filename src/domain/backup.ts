@@ -1,11 +1,26 @@
-const { isSafeBasename } = require('./out/lib/safety.js');
+import { isSafeBasename } from '../lib/safety.js';
 
 // Manifest version bump = breaking change to the backup format. Older apps
 // must refuse to restore newer versions; newer apps may accept older ones if
 // they handle the diff. v1 = initial format described in #32.
-const MANIFEST_VERSION = 1;
+export const MANIFEST_VERSION = 1;
 
-function buildManifest({ bookCount, createdAt = new Date().toISOString() } = {}) {
+export interface BackupManifest {
+  version: number;
+  app: 'airshelf';
+  createdAt: string;
+  bookCount: number;
+}
+
+interface BuildManifestArgs {
+  bookCount: number;
+  createdAt?: string;
+}
+
+export function buildManifest({
+  bookCount,
+  createdAt = new Date().toISOString(),
+}: BuildManifestArgs): BackupManifest {
   return {
     version: MANIFEST_VERSION,
     app: 'airshelf',
@@ -14,30 +29,49 @@ function buildManifest({ bookCount, createdAt = new Date().toISOString() } = {})
   };
 }
 
+// Loose shapes — the inputs come from JSON.parse on untrusted backup
+// archives, so we use `unknown` for the entry point and narrow in the body.
+interface BackupBookEntry {
+  file?: unknown;
+  originalFile?: unknown;
+  cover?: unknown;
+}
+
+interface ValidateBackupArgs {
+  manifest: unknown;
+  meta: unknown;
+  fileNames: unknown;
+}
+
+export type ValidateBackupResult = { ok: true } | { ok: false; error: string };
+
 // Pure validator over a parsed-zip view: caller extracts manifest.json and
 // books.json from the archive, plus the list of relative names under books/,
 // and hands them in. Keeping I/O at the boundary makes this trivially
 // testable without on-disk fixtures and lets the same checks run on a
 // stream-decompressed zip later if we move off adm-zip.
-//
-// Returns { ok: true } or { ok: false, error }.
-function validateBackup({ manifest, meta, fileNames }) {
+export function validateBackup({
+  manifest,
+  meta,
+  fileNames,
+}: ValidateBackupArgs): ValidateBackupResult {
   if (!manifest || typeof manifest !== 'object') {
     return { ok: false, error: 'Not an Airshelf backup (no manifest.json).' };
   }
-  if (manifest.app !== 'airshelf') {
+  const m = manifest as Partial<BackupManifest>;
+  if (m.app !== 'airshelf') {
     return { ok: false, error: 'Not an Airshelf backup.' };
   }
-  if (typeof manifest.version !== 'number') {
+  if (typeof m.version !== 'number') {
     return { ok: false, error: 'Backup manifest is corrupt (missing version).' };
   }
-  if (manifest.version > MANIFEST_VERSION) {
+  if (m.version > MANIFEST_VERSION) {
     return {
       ok: false,
-      error: `Backup format v${manifest.version} is newer than this app supports (v${MANIFEST_VERSION}). Update Airshelf and try again.`,
+      error: `Backup format v${m.version} is newer than this app supports (v${MANIFEST_VERSION}). Update Airshelf and try again.`,
     };
   }
-  if (!meta || !Array.isArray(meta.books)) {
+  if (!meta || typeof meta !== 'object' || !Array.isArray((meta as { books?: unknown }).books)) {
     return { ok: false, error: 'Backup books.json is malformed.' };
   }
   if (!Array.isArray(fileNames)) {
@@ -55,21 +89,21 @@ function validateBackup({ manifest, meta, fileNames }) {
   // macOS APFS/HFS+ default to case-insensitive: `Foo.epub` and `foo.epub`
   // would clobber each other on extraction. Refuse the backup outright so
   // restoring on macOS doesn't silently lose one of the pair.
-  const lcSeen = new Set();
-  for (const name of fileNames) {
+  const lcSeen = new Set<string>();
+  for (const name of fileNames as string[]) {
     const lc = name.toLowerCase();
     if (lcSeen.has(lc)) {
       return { ok: false, error: `Backup contains case-insensitive duplicate: books/${name}` };
     }
     lcSeen.add(lc);
   }
-  const fileSet = new Set(fileNames);
+  const fileSet = new Set(fileNames as string[]);
   // Path-traversal defence + cross-reference. Reject any metadata entry
   // whose file/originalFile/cover isn't a single safe basename (mirrors the
   // loadMeta() filter), and require every referenced name to actually be
   // present under books/ in the archive — otherwise restore would produce
   // a broken library where /download throws on a missing file.
-  for (const b of meta.books) {
+  for (const b of (meta as { books: BackupBookEntry[] }).books) {
     if (!b || !isSafeBasename(b.file)) {
       return { ok: false, error: `Backup contains unsafe entry: file=${b && b.file}` };
     }
@@ -78,10 +112,16 @@ function validateBackup({ manifest, meta, fileNames }) {
     }
     if (b.originalFile != null) {
       if (!isSafeBasename(b.originalFile)) {
-        return { ok: false, error: `Backup contains unsafe entry: originalFile=${b.originalFile}` };
+        return {
+          ok: false,
+          error: `Backup contains unsafe entry: originalFile=${b.originalFile}`,
+        };
       }
       if (!fileSet.has(b.originalFile)) {
-        return { ok: false, error: `Backup is missing referenced originalFile: ${b.originalFile}` };
+        return {
+          ok: false,
+          error: `Backup is missing referenced originalFile: ${b.originalFile}`,
+        };
       }
     }
     if (b.cover != null) {
@@ -95,5 +135,3 @@ function validateBackup({ manifest, meta, fileNames }) {
   }
   return { ok: true };
 }
-
-module.exports = { MANIFEST_VERSION, buildManifest, validateBackup };

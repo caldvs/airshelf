@@ -336,7 +336,7 @@ async function getOrBuildReaderEpub(book) {
 }
 
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./out/lib/safety.js');
-const { buildManifest, validateBackup } = require('./backup.js');
+const { buildManifest, validateBackup } = require('./out/domain/backup.js');
 const {
   tokensMatch,
   loadOrCreateServerToken,
