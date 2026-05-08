@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRangeHeader } from './route-range.js';
+import { parseRangeHeader } from './out/server/routes/range.js';
 
 describe('parseRangeHeader', () => {
   it('returns null when there is no Range header', () => {

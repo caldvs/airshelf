@@ -3,7 +3,7 @@
 // integration-testable without booting Electron or http.Server.
 
 const fs = require('fs');
-const { parseRangeHeader } = require('./route-range.js');
+const { parseRangeHeader } = require('./out/server/routes/range.js');
 
 const EPUB_PATH_RE = /^\/epub\/([a-f0-9]+)$/;
 

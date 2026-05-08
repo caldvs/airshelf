@@ -5,6 +5,18 @@
 // breaks silently in subtle ways (off-by-one on the inclusive end, ranges
 // past EOF, backwards ranges), so it's pulled out of main.js and tested.
 
+export type ParsedRange =
+  | {
+      status: 416;
+      headers: { 'Content-Range': string };
+    }
+  | {
+      status: 206;
+      start: number;
+      end: number;
+      headers: { 'Content-Range': string; 'Content-Length': number };
+    };
+
 // Parses the inbound `Range` header against a known total size and returns
 // the response shape the caller should send.
 //
@@ -19,7 +31,10 @@
 //
 // `start` and `end` are inclusive — fs.createReadStream({ start, end })
 // expects this same convention.
-function parseRangeHeader(rangeHeader, totalSize) {
+export function parseRangeHeader(
+  rangeHeader: string | null | undefined,
+  totalSize: number,
+): ParsedRange | null {
   if (!rangeHeader) return null;
   // Anchored at start, unanchored at end so a multi-range header
   // (`bytes=0-100,200-300`) matches the FIRST range and 206s — same
@@ -46,5 +61,3 @@ function parseRangeHeader(rangeHeader, totalSize) {
     },
   };
 }
-
-module.exports = { parseRangeHeader };
