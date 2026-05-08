@@ -1498,13 +1498,35 @@ function scheduleAutoUpdates() {
   }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+
+  // Push update events to the renderer so it can render a non-blocking
+  // toast (the issue's "non-blocking Update available toast in-app").
+  // If no window is up yet, the event is dropped — the next periodic
+  // check will resurface the same update.
+  function notifyRenderer(channel, payload) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.webContents.send(channel, payload); } catch {}
+    }
+  }
+
   autoUpdater.on('error', (e) => console.warn('[updater] error:', e?.message || e));
   autoUpdater.on('update-available', (info) => {
     console.log('[updater] update available:', info?.version);
+    notifyRenderer('updater:available', { version: info?.version });
   });
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[updater] update downloaded:', info?.version);
+    notifyRenderer('updater:downloaded', { version: info?.version });
   });
+
+  // Renderer-initiated relaunch — fired by the toast's "Restart" button.
+  // quitAndInstall false-false skips the prompt + reopens the app.
+  ipcMain.handle('updater:install', () => {
+    try { autoUpdater.quitAndInstall(false, true); } catch (e) {
+      console.warn('[updater] quitAndInstall failed:', e?.message || e);
+    }
+  });
+
   autoUpdater.checkForUpdatesAndNotify().catch((e) => {
     console.warn('[updater] initial check failed:', e?.message || e);
   });

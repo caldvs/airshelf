@@ -1062,6 +1062,52 @@ body {
 .toast.warn    { background: #b76b00; }
 .toast.error   { background: #a62a1d; }
 
+/* Sticky update-downloaded banner — separate from `.toast` because it
+ * needs a Restart action and doesn't auto-dismiss. */
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 112px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--toast-bg);
+  color: #ffffff;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  z-index: var(--z-toast);
+  box-shadow: var(--shadow-toast);
+  max-width: 420px;
+}
+.update-banner.hidden { display: none; }
+.update-banner-btn {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+}
+.update-banner-btn:hover { background: rgba(255, 255, 255, 0.2); }
+.update-banner-close {
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+}
+.update-banner-close:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+
 /* ============================================================
    URL modal
    ============================================================ */

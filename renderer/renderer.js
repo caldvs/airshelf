@@ -643,6 +643,29 @@ document.getElementById('calibre-clear').addEventListener('click', async () => {
 });
 document.getElementById('calibre-get').addEventListener('click', openCalibreDownload);
 
+// ---- Auto-update toast / banner ----
+const updateBanner = document.getElementById('update-banner');
+const updateBannerText = document.getElementById('update-banner-text');
+if (window.airshelf.onUpdateAvailable) {
+  window.airshelf.onUpdateAvailable((info) => {
+    const v = info && info.version ? ` (v${info.version})` : '';
+    showToast(`Update available${v} — downloading in the background…`, 'info');
+  });
+}
+if (window.airshelf.onUpdateDownloaded) {
+  window.airshelf.onUpdateDownloaded((info) => {
+    const v = info && info.version ? ` v${info.version}` : '';
+    updateBannerText.textContent = `New version${v} ready — restart to install.`;
+    updateBanner.classList.remove('hidden');
+  });
+}
+document.getElementById('update-banner-restart').addEventListener('click', () => {
+  if (window.airshelf.installUpdate) window.airshelf.installUpdate();
+});
+document.getElementById('update-banner-close').addEventListener('click', () => {
+  updateBanner.classList.add('hidden');
+});
+
 // ---- Init ----
 refresh();
 loadServerInfo();

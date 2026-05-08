@@ -25,4 +25,11 @@ contextBridge.exposeInMainWorld('airshelf', {
   calibreClear: () => ipcRenderer.invoke('calibre:clear'),
   backupLibrary: () => ipcRenderer.invoke('library:backup'),
   restoreLibrary: () => ipcRenderer.invoke('library:restore'),
+  onUpdateAvailable: (cb) => {
+    ipcRenderer.on('updater:available', (_e, info) => cb(info));
+  },
+  onUpdateDownloaded: (cb) => {
+    ipcRenderer.on('updater:downloaded', (_e, info) => cb(info));
+  },
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
 });
