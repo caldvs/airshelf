@@ -9,29 +9,49 @@
 // so a user reading the code off the Mac screen is unlikely to mistype it
 // on the Kindle's clunky on-screen keyboard.
 
-const crypto = require('crypto');
+import { randomBytes, timingSafeEqual } from 'crypto';
 
-const PAIR_ALPHABET = 'ACDEFHJKMNPQRTVWXY3479';
-const PAIR_CODE_LEN = 4;
-const PAIR_CODE_RE = new RegExp(`^[${PAIR_ALPHABET}]{${PAIR_CODE_LEN}}$`);
-const PAIR_TTL_MS = 60_000;
+export const PAIR_ALPHABET = 'ACDEFHJKMNPQRTVWXY3479';
+export const PAIR_CODE_LEN = 4;
+export const PAIR_CODE_RE = new RegExp(`^[${PAIR_ALPHABET}]{${PAIR_CODE_LEN}}$`);
+export const PAIR_TTL_MS = 60_000;
 
-function generatePairCode() {
+export function generatePairCode(): string {
   // Rejection sampling so the alphabet's length doesn't have to divide 256.
   const limit = Math.floor(256 / PAIR_ALPHABET.length) * PAIR_ALPHABET.length;
   let out = '';
   while (out.length < PAIR_CODE_LEN) {
-    const b = crypto.randomBytes(1)[0];
+    const b = randomBytes(1)[0];
     if (b >= limit) continue;
     out += PAIR_ALPHABET[b % PAIR_ALPHABET.length];
   }
   return out;
 }
 
-class PairCodeStore {
+interface PairCodeStoreOptions {
+  ttlMs?: number;
+  now?: () => number;
+  generator?: () => string;
+}
+
+export interface ActivePairCode {
+  code: string;
+  expiresAt: number;
+}
+
+export class PairCodeStore {
+  private readonly ttlMs: number;
+  private readonly now: () => number;
+  private readonly generator: () => string;
+  private readonly codes: Map<string, number>;
+
   // `generator` is injectable for deterministic tests; defaults to the
   // crypto-backed random generator used in production.
-  constructor({ ttlMs = PAIR_TTL_MS, now = Date.now, generator = generatePairCode } = {}) {
+  constructor({
+    ttlMs = PAIR_TTL_MS,
+    now = Date.now,
+    generator = generatePairCode,
+  }: PairCodeStoreOptions = {}) {
     this.ttlMs = ttlMs;
     this.now = now;
     this.generator = generator;
@@ -43,7 +63,7 @@ class PairCodeStore {
   // active code at a time, since two codes wouldn't help the user (they'd
   // type whichever the screen showed last anyway) and would double the
   // server's exposure to brute-force attempts during the TTL.
-  issue() {
+  issue(): string {
     // Normalize+validate the generator's output BEFORE clearing the existing
     // entry, so a thrown validation error doesn't leave the store empty (the
     // previously-active code remains usable instead of being silently wiped).
@@ -62,11 +82,11 @@ class PairCodeStore {
   // Returns the active code without rotating it, or null if none / expired.
   // The renderer polls this so the user can see the same code update its
   // remaining lifetime, rather than getting a fresh code on every refresh.
-  peek() {
+  peek(): ActivePairCode | null {
     this._sweep();
     const [code] = this.codes.keys();
     if (!code) return null;
-    const expiresAt = this.codes.get(code);
+    const expiresAt = this.codes.get(code)!;
     return { code, expiresAt };
   }
 
@@ -76,7 +96,7 @@ class PairCodeStore {
   // above short-circuit on malformed input — those callers can already be
   // distinguished by timing. The defence here is the per-IP rate limiter
   // and the 60-second TTL, not constant-time validation.
-  consume(input) {
+  consume(input: unknown): boolean {
     if (typeof input !== 'string') return false;
     // Length-check before uppercasing so a megabyte-long /pair/<…> doesn't
     // allocate an O(N) uppercased copy just to be rejected by the regex.
@@ -89,7 +109,7 @@ class PairCodeStore {
       if (expiresAt <= this.now()) continue;
       const a = Buffer.from(code);
       const b = Buffer.from(upper);
-      if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+      if (a.length === b.length && timingSafeEqual(a, b)) {
         matched = true;
       }
     }
@@ -97,19 +117,10 @@ class PairCodeStore {
     return matched;
   }
 
-  _sweep() {
+  private _sweep(): void {
     const t = this.now();
     for (const [code, expiresAt] of this.codes) {
       if (expiresAt <= t) this.codes.delete(code);
     }
   }
 }
-
-module.exports = {
-  PAIR_ALPHABET,
-  PAIR_CODE_LEN,
-  PAIR_CODE_RE,
-  PAIR_TTL_MS,
-  generatePairCode,
-  PairCodeStore,
-};
