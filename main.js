@@ -271,7 +271,7 @@ const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./a
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handleCoverRequest } = require('./route-cover.js');
-const { parseRangeHeader } = require('./route-range.js');
+const { handleEpubRequest } = require('./route-epub.js');
 
 // Scan the Cookie header for any host-only `airshelf_token` value matching the
 // current server token. Browsers can send duplicate cookie names (for example
@@ -1424,49 +1424,25 @@ function startServer() {
       // raw zip with proper MIME). The reader fetches via loopback, but the
       // route is reachable from LAN with the token like every other route —
       // CORS is set to 'null' (matches file:// origin) and Range support
-      // keeps epubjs happy on big books. To restrict to loopback, check
-      // req.socket.remoteAddress for 127.0.0.1 / ::1 / ::ffff:127.0.0.1.
-      const epubMatch = subPath.match(/^\/epub\/([a-f0-9]+)$/);
-      if (epubMatch) {
-        const id = epubMatch[1];
-        const book = listBooks().find(b => b.id === id);
-        if (!book) { res.writeHead(404); res.end('Not found'); return; }
-        let epubPath;
-        try {
-          epubPath = await getOrBuildReaderEpub(book);
-        } catch (e) {
-          res.writeHead(500, { 'Access-Control-Allow-Origin': 'null' });
-          res.end(`Build failed: ${e.message}`);
-          return;
-        }
-        if (!epubPath || !fs.existsSync(epubPath)) {
-          res.writeHead(404, { 'Access-Control-Allow-Origin': 'null' });
-          res.end('Missing'); return;
-        }
-        const stat = fs.statSync(epubPath);
-        const baseHeaders = {
-          'Content-Type': 'application/epub+zip',
-          'Accept-Ranges': 'bytes',
-          'Cache-Control': 'private, max-age=3600',
-          // The reader iframe loads from file:// (Origin: null). 'null'
-          // matches that without opening to arbitrary websites the way '*' did.
-          'Access-Control-Allow-Origin': 'null',
-        };
-        const range = parseRangeHeader(req.headers.range, stat.size);
-        if (range && range.status === 416) {
-          res.writeHead(416, { ...baseHeaders, ...range.headers });
+      // keeps epubjs happy on big books. The decision logic lives in
+      // route-epub.js so it can be tested without booting an HTTP server.
+      const epubDecision = await handleEpubRequest({
+        subPath,
+        books: listBooks(),
+        getReaderEpubPath: getOrBuildReaderEpub,
+        rangeHeader: req.headers.range,
+      });
+      if (epubDecision) {
+        res.writeHead(epubDecision.status, epubDecision.headers || {});
+        if (epubDecision.stream) {
+          const { path: streamPath, start, end } = epubDecision.stream;
+          const opts = (start !== undefined) ? { start, end } : {};
+          pipeStreamToResponse(fs.createReadStream(streamPath, opts), req, res);
+        } else if (epubDecision.body !== undefined) {
+          res.end(epubDecision.body);
+        } else {
           res.end();
-          return;
         }
-        if (range && range.status === 206) {
-          res.writeHead(206, { ...baseHeaders, ...range.headers });
-          const rangeStream = fs.createReadStream(epubPath, { start: range.start, end: range.end });
-          pipeStreamToResponse(rangeStream, req, res);
-          return;
-        }
-        res.writeHead(200, { ...baseHeaders, 'Content-Length': stat.size });
-        const epubStream = fs.createReadStream(epubPath);
-        pipeStreamToResponse(epubStream, req, res);
         return;
       }
       res.writeHead(404); res.end('Not found');
