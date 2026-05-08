@@ -9,7 +9,7 @@ import {
   buildCoverAttemptUrls,
   parseDescription,
   COVER_PLACEHOLDER_BYTES,
-} from './openlibrary.js';
+} from './out/integrations/openlibrary.js';
 
 // Note: openlibrary.js exports `searchOpenLibrary` and
 // `downloadOpenLibraryCover` separately rather than the
