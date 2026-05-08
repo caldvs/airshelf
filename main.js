@@ -389,7 +389,7 @@ const MDNS_HOST = 'airshelf';
 // known, swap to a file-backed store and migrate any pre-init writes
 // across so nothing is lost.
 
-const { createSettingsStore } = require('./settings.js');
+const { createSettingsStore } = require('./out/domain/settings.js');
 let settingsStore = createSettingsStore(null);
 
 function loadSettings() {
