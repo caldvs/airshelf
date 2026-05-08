@@ -344,7 +344,7 @@ const {
   FailedAuthLimiter,
 } = require('./out/domain/auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./out/domain/pair.js');
-const { authoriseRequest } = require('./route-auth.js');
+const { authoriseRequest } = require('./out/server/routes/auth.js');
 const { handlePairRequest } = require('./route-pair.js');
 const { validateUploadRequest, MAX_UPLOAD_BYTES } = require('./route-upload.js');
 const { humanSize, escapeHtml, getLocalIP } = require('./out/lib/utils.js');

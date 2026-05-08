@@ -62,7 +62,6 @@
       "main.js",
       "preload.js",
       "out/**/*",
-      "route-auth.js",
       "route-cover.js",
       "route-index.js",
       "route-range.js",

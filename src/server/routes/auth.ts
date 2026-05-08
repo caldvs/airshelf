@@ -16,15 +16,44 @@
 //   • return a non-tokenised request as a 404 (no 401) so the server is
 //     indistinguishable from no server at all to a port-scan.
 
-const TOKEN_PATH_RE = /^\/([a-z]{6})(\/.*)?$/;
+export const TOKEN_PATH_RE = /^\/([a-z]{6})(\/.*)?$/;
 
-function parseTokenPath(pathname) {
+export interface ParsedTokenPath {
+  token: string;
+  subPath: string;
+}
+
+export function parseTokenPath(pathname: string): ParsedTokenPath | null {
   const m = pathname.match(TOKEN_PATH_RE);
   if (!m) return null;
   return { token: m[1], subPath: m[2] || '/' };
 }
 
-function authoriseRequest({ pathname, ip, expectedToken, limiter, tokensMatch }) {
+interface RateLimiter {
+  isBlocked(ip: string): boolean;
+  recordFail(ip: string): void;
+  recordSuccess(ip: string): void;
+}
+
+interface AuthoriseArgs {
+  pathname: string;
+  ip: string;
+  expectedToken: string;
+  limiter: RateLimiter;
+  tokensMatch: (a: unknown, b: unknown) => boolean;
+}
+
+export type AuthoriseResult =
+  | { allow: true; subPath: string; ip: string }
+  | { allow: false; status: 404; reason: 'rate-limited' | 'no-token' | 'bad-token' };
+
+export function authoriseRequest({
+  pathname,
+  ip,
+  expectedToken,
+  limiter,
+  tokensMatch,
+}: AuthoriseArgs): AuthoriseResult {
   if (limiter.isBlocked(ip)) {
     return { allow: false, status: 404, reason: 'rate-limited' };
   }
@@ -40,5 +69,3 @@ function authoriseRequest({ pathname, ip, expectedToken, limiter, tokensMatch })
   limiter.recordSuccess(ip);
   return { allow: true, subPath: parsed.subPath, ip };
 }
-
-module.exports = { TOKEN_PATH_RE, parseTokenPath, authoriseRequest };
