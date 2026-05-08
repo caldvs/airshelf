@@ -270,6 +270,7 @@ const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
+const { humanSize, escapeHtml, getLocalIP } = require('./utils.js');
 const { handleCoverRequest } = require('./route-cover.js');
 const { parseRangeHeader } = require('./route-range.js');
 const { prepareDownloadResponse } = require('./route-download.js');
@@ -953,17 +954,6 @@ async function migrateExistingBooks() {
 
 // ---------- Networking ----------
 
-function getLocalIP() {
-  const ifaces = os.networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const iface of ifaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address;
-      }
-    }
-  }
-  return '127.0.0.1';
-}
 
 // Loopback gate for write-side endpoints (#37 /upload). The server listens
 // on 0.0.0.0 so the Kindle can read; we don't want to expose mutating
@@ -973,27 +963,8 @@ function isLoopback(addr) {
   return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
-function humanSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
-function formatDate(ts) {
-  const d = new Date(ts);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) {
-    return `today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-  }
-  return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
-}
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
-}
 
 // Renders a static mock of the Electron bookshelf UI — used only for the
 // README screenshot. It is served from /screenshot in the same HTTP server.
