@@ -19,7 +19,9 @@ describe('titlesMatch', () => {
   it('ignores punctuation and collapses whitespace', () => {
     expect(titlesMatch('The Hobbit!', 'The Hobbit')).toBe(true);
     expect(titlesMatch('The   Hobbit', 'The Hobbit')).toBe(true);
-    expect(titlesMatch("The Hobbit: There and Back Again", 'The Hobbit  There and Back Again')).toBe(true);
+    expect(
+      titlesMatch('The Hobbit: There and Back Again', 'The Hobbit  There and Back Again'),
+    ).toBe(true);
   });
 
   it('matches when one title is a word-boundary prefix of the other (>=4 chars)', () => {
@@ -66,8 +68,9 @@ describe('cleanTitle', () => {
 
   it('drops trailing parenthetical series markers', () => {
     expect(cleanTitle('Dune (Dune Chronicles Book 1).epub')).toBe('Dune');
-    expect(cleanTitle('A Game of Thrones (A Song of Ice and Fire 1).epub'))
-      .toBe('A Game of Thrones');
+    expect(cleanTitle('A Game of Thrones (A Song of Ice and Fire 1).epub')).toBe(
+      'A Game of Thrones',
+    );
   });
 
   it('replaces underscores and collapses spaces', () => {
@@ -80,8 +83,9 @@ describe('cleanTitle', () => {
   });
 
   it('handles a realistic messy filename end-to-end', () => {
-    expect(cleanTitle('The Great Gatsby - F. Scott Fitzgerald (Modern Library).epub'))
-      .toBe('The Great Gatsby');
+    expect(cleanTitle('The Great Gatsby - F. Scott Fitzgerald (Modern Library).epub')).toBe(
+      'The Great Gatsby',
+    );
   });
 
   it('does NOT split authors when the dash is wrapped in underscores (no whitespace)', () => {
@@ -89,8 +93,9 @@ describe('cleanTitle', () => {
     // between words don't trigger it, so the author stays in the title and
     // gets surfaced after the underscore→space pass. Documenting current
     // behaviour so a future change is intentional.
-    expect(cleanTitle('the_great_gatsby__-__f_scott_fitzgerald.epub'))
-      .toBe('the great gatsby - f scott fitzgerald');
+    expect(cleanTitle('the_great_gatsby__-__f_scott_fitzgerald.epub')).toBe(
+      'the great gatsby - f scott fitzgerald',
+    );
   });
 });
 
@@ -104,8 +109,7 @@ describe('guessAuthorFromFilename', () => {
   });
 
   it('swaps "Last, First" → "First Last"', () => {
-    expect(guessAuthorFromFilename('The Hobbit -- Tolkien, J R R.epub'))
-      .toBe('J R R Tolkien');
+    expect(guessAuthorFromFilename('The Hobbit -- Tolkien, J R R.epub')).toBe('J R R Tolkien');
   });
 
   it('returns null when there is no separator', () => {
@@ -119,8 +123,9 @@ describe('guessAuthorFromFilename', () => {
 
   it('takes the LAST segment when there are multiple separators (publisher edition prefix)', () => {
     // "Modern Classics -- The Hobbit -- Tolkien" — the author is the trailing part
-    expect(guessAuthorFromFilename('Modern Classics -- The Hobbit -- Tolkien.epub'))
-      .toBe('Tolkien');
+    expect(guessAuthorFromFilename('Modern Classics -- The Hobbit -- Tolkien.epub')).toBe(
+      'Tolkien',
+    );
   });
 });
 

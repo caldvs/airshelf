@@ -58,8 +58,10 @@ describe('createSettingsStore', () => {
     const store = createSettingsStore(file);
     const result = store.save({ themePref: 'slate' });
     expect(result).toEqual({ calibreBinDir: '/old', themePref: 'slate' });
-    expect(JSON.parse(fs.readFileSync(file, 'utf8')))
-      .toEqual({ calibreBinDir: '/old', themePref: 'slate' });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({
+      calibreBinDir: '/old',
+      themePref: 'slate',
+    });
   });
 
   it('save() drops keys whose value is null (forget)', () => {
@@ -67,8 +69,7 @@ describe('createSettingsStore', () => {
     const store = createSettingsStore(file);
     const result = store.save({ calibreBinDir: null });
     expect(result).toEqual({ themePref: 'slate' });
-    expect(JSON.parse(fs.readFileSync(file, 'utf8')))
-      .toEqual({ themePref: 'slate' });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ themePref: 'slate' });
   });
 
   it('save() drops keys whose value is undefined', () => {

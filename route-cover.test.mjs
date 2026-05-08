@@ -41,9 +41,7 @@ describe('sniffImageType', () => {
 
 describe('handleCoverRequest', () => {
   it('returns null when subPath does not match the route', () => {
-    expect(
-      handleCoverRequest({ subPath: '/index.html', books: [], booksDir }),
-    ).toBeNull();
+    expect(handleCoverRequest({ subPath: '/index.html', books: [], booksDir })).toBeNull();
   });
 
   it('404s when the book is unknown', () => {
@@ -139,11 +137,7 @@ describe('handleCoverRequest', () => {
   });
 
   it('rejects bookIds with non-hex characters via the route regex', () => {
-    expect(
-      handleCoverRequest({ subPath: '/cover/abc-123', books: [], booksDir }),
-    ).toBeNull();
-    expect(
-      handleCoverRequest({ subPath: '/cover/AbC123', books: [], booksDir }),
-    ).toBeNull();
+    expect(handleCoverRequest({ subPath: '/cover/abc-123', books: [], booksDir })).toBeNull();
+    expect(handleCoverRequest({ subPath: '/cover/AbC123', books: [], booksDir })).toBeNull();
   });
 });

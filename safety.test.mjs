@@ -81,7 +81,7 @@ describe('isPrivateIpv6', () => {
 
   it('does not flag public v6', () => {
     expect(isPrivateIpv6('2606:4700:4700::1111')).toBe(false); // Cloudflare
-    expect(isPrivateIpv6('2001:db8::1')).toBe(false);          // documentation, not private
+    expect(isPrivateIpv6('2001:db8::1')).toBe(false); // documentation, not private
   });
 
   it('returns false on garbage input rather than crashing', () => {
@@ -159,7 +159,7 @@ describe('assertExternalUrl', () => {
   // Inject a fake DNS resolver so tests stay offline + deterministic.
   const fakeLookup = (mapping) => async (host) => {
     if (!(host in mapping)) throw new Error(`ENOTFOUND ${host}`);
-    return mapping[host].map(address => ({ address, family: address.includes(':') ? 6 : 4 }));
+    return mapping[host].map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
   };
 
   it('rejects non-http(s) schemes synchronously', async () => {
@@ -168,12 +168,11 @@ describe('assertExternalUrl', () => {
   });
 
   it('rejects literal private IPs without DNS', async () => {
-    await expect(assertExternalUrl('http://127.0.0.1/'))
-      .rejects.toThrow(/internal/);
-    await expect(assertExternalUrl('http://192.168.1.1/'))
-      .rejects.toThrow(/internal/);
-    await expect(assertExternalUrl('http://169.254.169.254/latest/meta-data/'))
-      .rejects.toThrow(/internal/);
+    await expect(assertExternalUrl('http://127.0.0.1/')).rejects.toThrow(/internal/);
+    await expect(assertExternalUrl('http://192.168.1.1/')).rejects.toThrow(/internal/);
+    await expect(assertExternalUrl('http://169.254.169.254/latest/meta-data/')).rejects.toThrow(
+      /internal/,
+    );
   });
 
   it('rejects "localhost" and *.local hosts', async () => {
@@ -184,14 +183,16 @@ describe('assertExternalUrl', () => {
 
   it('rejects hosts whose DNS resolves to a private address', async () => {
     const lookup = fakeLookup({ 'evil.example': ['192.168.1.1'] });
-    await expect(assertExternalUrl('http://evil.example/x', { lookup }))
-      .rejects.toThrow(/internal/);
+    await expect(assertExternalUrl('http://evil.example/x', { lookup })).rejects.toThrow(
+      /internal/,
+    );
   });
 
   it('rejects when ANY resolved address is private', async () => {
     const lookup = fakeLookup({ 'mixed.example': ['8.8.8.8', '10.0.0.1'] });
-    await expect(assertExternalUrl('http://mixed.example/', { lookup }))
-      .rejects.toThrow(/internal/);
+    await expect(assertExternalUrl('http://mixed.example/', { lookup })).rejects.toThrow(
+      /internal/,
+    );
   });
 
   it('allows public IPs', async () => {
@@ -200,7 +201,6 @@ describe('assertExternalUrl', () => {
 
   it('allows hosts that resolve only to public addresses', async () => {
     const lookup = fakeLookup({ 'good.example': ['1.1.1.1', '8.8.8.8'] });
-    await expect(assertExternalUrl('http://good.example/', { lookup }))
-      .resolves.toBeUndefined();
+    await expect(assertExternalUrl('http://good.example/', { lookup })).resolves.toBeUndefined();
   });
 });

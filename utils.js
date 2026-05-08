@@ -14,9 +14,17 @@ function humanSize(bytes) {
 // entities (so &lt; → &amp;lt;). Callers that re-render server output need
 // to escape exactly once at the boundary.
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[c],
+  );
 }
 
 // Returns the first non-internal IPv4 from os.networkInterfaces(), or

@@ -17,7 +17,21 @@ module.exports = [
 
   // Main process + helpers (CommonJS).
   {
-    files: ['main.js', 'preload.js', 'auth.js', 'pair.js', 'safety.js', 'hash.js', 'concurrency.js', 'titles.js', 'inject-asin.js', 'goodreads.js', 'route-*.js', 'settings.js', 'bin/*.js'],
+    files: [
+      'main.js',
+      'preload.js',
+      'auth.js',
+      'pair.js',
+      'safety.js',
+      'hash.js',
+      'concurrency.js',
+      'titles.js',
+      'inject-asin.js',
+      'goodreads.js',
+      'route-*.js',
+      'settings.js',
+      'bin/*.js',
+    ],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'commonjs',
@@ -26,7 +40,10 @@ module.exports = [
     ...js.configs.recommended,
     rules: {
       ...js.configs.recommended.rules,
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      'no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
@@ -37,12 +54,20 @@ module.exports = [
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'script',
-      globals: { ...globals.browser, ePub: 'readonly', airshelf: 'readonly', airshelfReader: 'readonly' },
+      globals: {
+        ...globals.browser,
+        ePub: 'readonly',
+        airshelf: 'readonly',
+        airshelfReader: 'readonly',
+      },
     },
     ...js.configs.recommended,
     rules: {
       ...js.configs.recommended.rules,
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      'no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
@@ -58,7 +83,10 @@ module.exports = [
     ...js.configs.recommended,
     rules: {
       ...js.configs.recommended.rules,
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      'no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },

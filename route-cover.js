@@ -54,7 +54,7 @@ function handleCoverRequest({ subPath, books, booksDir, ifNoneMatch, ifModifiedS
   if (ifNoneMatch === etag || ifModifiedSince === lastModified) {
     return {
       status: 304,
-      headers: { 'ETag': etag, 'Cache-Control': CACHE_CONTROL },
+      headers: { ETag: etag, 'Cache-Control': CACHE_CONTROL },
     };
   }
 
@@ -66,9 +66,9 @@ function handleCoverRequest({ subPath, books, booksDir, ifNoneMatch, ifModifiedS
       'Content-Type': sniffImageType(buf),
       'Content-Length': buf.length,
       'Cache-Control': CACHE_CONTROL,
-      'ETag': etag,
+      ETag: etag,
       'Last-Modified': lastModified,
-      'Expires': new Date(Date.now() + CACHE_MAX_AGE_SECONDS * 1000).toUTCString(),
+      Expires: new Date(Date.now() + CACHE_MAX_AGE_SECONDS * 1000).toUTCString(),
     },
   };
 }

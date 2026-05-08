@@ -31,10 +31,10 @@ describe('escapeHtml', () => {
   });
 
   it('escapes them in context', () => {
-    expect(escapeHtml('<script>alert("xss")</script>'))
-      .toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
-    expect(escapeHtml("Tom & Jerry's <Adventure>"))
-      .toBe('Tom &amp; Jerry&#39;s &lt;Adventure&gt;');
+    expect(escapeHtml('<script>alert("xss")</script>')).toBe(
+      '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;',
+    );
+    expect(escapeHtml("Tom & Jerry's <Adventure>")).toBe('Tom &amp; Jerry&#39;s &lt;Adventure&gt;');
   });
 
   it('leaves non-special characters alone', () => {

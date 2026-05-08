@@ -3,14 +3,13 @@ const serverUrlEl = document.getElementById('server-url');
 const dropHint = document.getElementById('drop-hint');
 const toastEl = document.getElementById('toast');
 
-
 // ---- View switching ----
-document.querySelectorAll('.nav-item').forEach(btn => {
+document.querySelectorAll('.nav-item').forEach((btn) => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     const view = btn.dataset.view;
-    document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
+    document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
     document.getElementById(`view-${view}`).classList.remove('hidden');
   });
 });
@@ -132,9 +131,7 @@ function buildBookCard(b) {
   if (b.series) {
     const seriesEl = document.createElement('div');
     seriesEl.className = 'book-series';
-    seriesEl.textContent = b.seriesIndex != null
-      ? `${b.series} #${b.seriesIndex}`
-      : b.series;
+    seriesEl.textContent = b.seriesIndex != null ? `${b.series} #${b.seriesIndex}` : b.series;
     card.append(seriesEl);
   }
 
@@ -150,7 +147,7 @@ function buildBookCard(b) {
     // .book-card class for grid layout but don't represent a pressed/
     // toggled book and shouldn't get a misleading aria-pressed attribute.
     // Filtering on `[data-id]` keeps the selection state on book cards only.
-    document.querySelectorAll('.book-card[data-id]').forEach(c => {
+    document.querySelectorAll('.book-card[data-id]').forEach((c) => {
       const isSelected = c.dataset.id === b.id;
       c.classList.toggle('selected', isSelected);
       c.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
@@ -324,7 +321,7 @@ function buildSeriesCollapseHeader(seriesName, count) {
 function renderBooks(books, opts = {}) {
   shelfEl.innerHTML = '';
 
-  if (selectedBookId && !books.find(b => b.id === selectedBookId)) {
+  if (selectedBookId && !books.find((b) => b.id === selectedBookId)) {
     selectedBookId = null;
   }
 
@@ -394,7 +391,7 @@ function renderBooks(books, opts = {}) {
       // selectedBookId behind that the Delete key would still act on.
       // Clear it now so destructive actions can't fire on an invisible
       // target. The user can re-select after expanding.
-      if (selectedBookId && group.some(sb => sb.id === selectedBookId)) {
+      if (selectedBookId && group.some((sb) => sb.id === selectedBookId)) {
         selectedBookId = null;
       }
       shelfEl.appendChild(buildSeriesStackCard(b.series, group));
@@ -420,7 +417,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#btn-add')) return;
   if (selectedBookId !== null) {
     selectedBookId = null;
-    document.querySelectorAll('.book-card.selected, .spine.selected').forEach(c => {
+    document.querySelectorAll('.book-card.selected, .spine.selected').forEach((c) => {
       c.classList.remove('selected');
       if (c.classList.contains('book-card')) {
         c.setAttribute('aria-pressed', 'false');
@@ -451,21 +448,24 @@ function bookMatchesQuery(b, q) {
   // Plain substring matching is enough for the scale (hundreds of books, per
   // issue #42) and avoids needing tokenisation, fuzzy scoring, or an index.
   // Year is coerced to string so `2014` matches a numeric year field.
-  return (b.title || '').toLowerCase().includes(q)
-      || (b.author || '').toLowerCase().includes(q)
-      || String(b.year || '').includes(q);
+  return (
+    (b.title || '').toLowerCase().includes(q) ||
+    (b.author || '').toLowerCase().includes(q) ||
+    String(b.year || '').includes(q)
+  );
 }
 
 function applyBookView() {
   const q = searchQuery.trim().toLowerCase();
-  const filtered = q ? allBooks.filter(b => bookMatchesQuery(b, q)) : allBooks;
+  const filtered = q ? allBooks.filter((b) => bookMatchesQuery(b, q)) : allBooks;
   // Three empty cases: (a) library is empty, (b) library has books but the
   // active query excludes them all, (c) no query and library is empty. We
   // only override the default "No books yet…" copy in case (b), which is
   // the only one where a "No matches" message is actually accurate.
-  const opts = q && filtered.length === 0 && allBooks.length > 0
-    ? { emptyMessage: `No matches for “${searchQuery.trim()}”.` }
-    : {};
+  const opts =
+    q && filtered.length === 0 && allBooks.length > 0
+      ? { emptyMessage: `No matches for “${searchQuery.trim()}”.` }
+      : {};
   // While searching, render flat: the user is looking for a specific book,
   // not browsing series, and hiding matches inside a closed stack would be
   // confusing. Series badges still appear on individual cards.
@@ -612,7 +612,10 @@ if (btnBackup) {
       const r = await window.airshelf.backupLibrary();
       if (r && r.canceled) return;
       if (r && r.ok) {
-        showToast(`Backed up ${r.bookCount} book${r.bookCount === 1 ? '' : 's'} (${humanBytes(r.size)})`, 'success');
+        showToast(
+          `Backed up ${r.bookCount} book${r.bookCount === 1 ? '' : 's'} (${humanBytes(r.size)})`,
+          'success',
+        );
       } else {
         showToast(`Backup failed: ${(r && r.error) || 'unknown error'}`, 'error');
       }
@@ -661,9 +664,7 @@ async function refreshPairCode({ forceRotate = false } = {}) {
   if (!pairUrlEl || !pairTtlEl) return;
   let info;
   try {
-    info = forceRotate
-      ? await window.airshelf.pairRotate()
-      : await window.airshelf.pairCurrent();
+    info = forceRotate ? await window.airshelf.pairRotate() : await window.airshelf.pairCurrent();
   } catch (e) {
     if (pairTtlTimer) clearInterval(pairTtlTimer);
     pairTtlTimer = null;
@@ -776,7 +777,10 @@ function closeUrlModal() {
 }
 async function submitUrlModal() {
   const url = urlInput.value.trim();
-  if (!url || !urlTargetId) { closeUrlModal(); return; }
+  if (!url || !urlTargetId) {
+    closeUrlModal();
+    return;
+  }
   const id = urlTargetId;
   closeUrlModal();
   setBusy('Fetching cover…');
@@ -807,14 +811,16 @@ if (window.airshelf.onCoverPromptUrl) {
 // ---- Theme picker ----
 const savedTheme = localStorage.getItem('airshelf-theme') || 'cloud';
 document.documentElement.setAttribute('data-theme', savedTheme);
-document.querySelectorAll('.theme-swatch').forEach(sw => {
+document.querySelectorAll('.theme-swatch').forEach((sw) => {
   if (sw.dataset.theme === savedTheme) sw.classList.add('active');
   else sw.classList.remove('active');
   sw.addEventListener('click', () => {
     const theme = sw.dataset.theme;
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('airshelf-theme', theme);
-    document.querySelectorAll('.theme-swatch').forEach(s => s.classList.toggle('active', s.dataset.theme === theme));
+    document
+      .querySelectorAll('.theme-swatch')
+      .forEach((s) => s.classList.toggle('active', s.dataset.theme === theme));
   });
 });
 
@@ -831,11 +837,12 @@ const searchInput = document.getElementById('search-input');
 const searchStatus = document.getElementById('search-palette-status');
 
 function updateSearchStatus(q, n) {
-  if (!q) { searchStatus.textContent = ''; return; }
+  if (!q) {
+    searchStatus.textContent = '';
+    return;
+  }
   const total = allBooks.length;
-  searchStatus.textContent = n === total
-    ? `${n} match${n === 1 ? '' : 'es'}`
-    : `${n} of ${total}`;
+  searchStatus.textContent = n === total ? `${n} match${n === 1 ? '' : 'es'}` : `${n} of ${total}`;
 }
 
 function openSearchPalette() {
@@ -898,9 +905,7 @@ document.addEventListener('keydown', (e) => {
   // no-op. The reader has its own Escape handler and we don't want the
   // palette opening over the book and stealing subsequent Escape presses.
   if (e.key !== 'k' && e.key !== 'K') return;
-  const modifierMatch = IS_MAC
-    ? (e.metaKey && !e.ctrlKey)
-    : (e.ctrlKey && !e.metaKey);
+  const modifierMatch = IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
   if (!modifierMatch) return;
   if (document.getElementById('reader')?.classList.contains('active')) return;
   e.preventDefault();
@@ -963,7 +968,10 @@ async function calibreLocateFlow() {
     return;
   }
   if (!r || r.canceled) return;
-  if (r.error) { showToast(r.error, 'error'); return; }
+  if (r.error) {
+    showToast(r.error, 'error');
+    return;
+  }
   showToast('Calibre saved', 'success');
   refreshCalibreStatus();
 }
