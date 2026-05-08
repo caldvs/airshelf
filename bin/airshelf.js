@@ -100,18 +100,98 @@ function cmdList() {
   }
 }
 
+// Send each path to the running Airshelf via POST /<token>/upload. The
+// running app's HTTP server runs the same addBook pipeline used by the
+// drag-drop and "Add books" flows — hash dedup, cover extraction, AZW3
+// conversion, books.json update — so we get the full feature set without
+// re-implementing it CLI-side.
+async function cmdSend(paths) {
+  if (!paths.length) {
+    process.stderr.write(`airshelf: send needs at least one file path\n`);
+    process.exit(2);
+  }
+  const userData = userDataDir();
+  const token = readToken(userData);
+  if (!token) {
+    process.stderr.write(`airshelf: no server token found in ${userData}\n`);
+    process.exit(1);
+  }
+  const baseUrl = `http://127.0.0.1:${PORT}/${token}`;
+  let okCount = 0;
+  let dupCount = 0;
+  let errCount = 0;
+  for (const p of paths) {
+    let stat;
+    try {
+      stat = fs.statSync(p);
+    } catch (e) {
+      process.stdout.write(`${p}\terror\tCannot read: ${e.message}\n`);
+      errCount += 1;
+      continue;
+    }
+    if (!stat.isFile()) {
+      process.stdout.write(`${p}\terror\tNot a regular file\n`);
+      errCount += 1;
+      continue;
+    }
+    const filename = path.basename(p);
+    const stream = fs.createReadStream(p);
+    let res;
+    try {
+      res = await fetch(`${baseUrl}/upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(stat.size),
+          'X-Filename': filename,
+        },
+        body: stream,
+        // Node's fetch requires duplex: 'half' for streamed bodies.
+        duplex: 'half',
+      });
+    } catch (e) {
+      // Node's fetch wraps the network error as `TypeError: fetch failed`
+      // and pins the original on .cause. We unwrap to give the user a
+      // concrete "is Airshelf running?" instead of the opaque message.
+      const code = e?.code ?? e?.cause?.code;
+      const hint = code === 'ECONNREFUSED'
+        ? `is Airshelf running on port ${PORT}?`
+        : e?.cause?.message || e?.message || String(e);
+      process.stdout.write(`${p}\terror\t${hint}\n`);
+      errCount += 1;
+      continue;
+    }
+    let payload = null;
+    try { payload = await res.json(); } catch {}
+    if (res.ok && payload && payload.book) {
+      process.stdout.write(`${p}\tadded\t${payload.book.id}\n`);
+      okCount += 1;
+    } else if (res.ok && payload && payload.duplicate) {
+      process.stdout.write(`${p}\tduplicate\t${payload.duplicate.id || ''}\n`);
+      dupCount += 1;
+    } else {
+      const msg = (payload && payload.error) || `HTTP ${res.status}`;
+      process.stdout.write(`${p}\terror\t${msg}\n`);
+      errCount += 1;
+    }
+  }
+  process.stderr.write(`added ${okCount}, duplicate ${dupCount}, error ${errCount}\n`);
+  process.exit(errCount > 0 ? 1 : 0);
+}
+
 function cmdHelp() {
   process.stdout.write(
-    `airshelf — read-only CLI for the Airshelf Mac app\n` +
+    `airshelf — CLI for the Airshelf Mac app\n` +
     `\n` +
     `Usage:\n` +
-    `  airshelf url     print the Kindle URL (http://<lan-ip>:6790/<token>/)\n` +
-    `  airshelf list    print the library as TSV (id, title, author, size)\n` +
-    `  airshelf -h      this help\n` +
+    `  airshelf url           print the Kindle URL (http://<lan-ip>:6790/<token>/)\n` +
+    `  airshelf list          print the library as TSV (id, title, author, size)\n` +
+    `  airshelf send <file…>  upload one or more ebooks (TSV: path<TAB>status<TAB>info)\n` +
+    `  airshelf -h            this help\n` +
     `\n` +
-    `Both commands read state from\n` +
+    `url and list read state from\n` +
     `  ${userDataDir()}\n` +
-    `so Airshelf must have been launched at least once.\n`,
+    `send requires Airshelf to be running on this machine.\n`,
   );
 }
 
@@ -120,6 +200,7 @@ function main(argv) {
   switch (cmd) {
     case 'url':  return cmdUrl();
     case 'list': return cmdList();
+    case 'send': return cmdSend(argv.slice(3));
     case '-h':
     case '--help':
     case 'help':

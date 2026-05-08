@@ -1316,6 +1316,77 @@ function startServer() {
         res.writeHead(auth.status); res.end('Not found'); return;
       }
       const subPath = auth.subPath;
+      // CLI / future-extension upload (#37). Same token as the rest of the
+      // server, but only honoured for POST. Request body is the raw bytes
+      // of one ebook; the original filename comes in via X-Filename so the
+      // saved file can pick up the right extension and (via cleanTitle)
+      // a sensible fallback title. Cap is generous (1 GB) — large PDFs are
+      // common, but we won't accept multi-GB blobs by accident.
+      if (subPath === '/upload' && req.method === 'POST') {
+        const filename = (req.headers['x-filename'] || '').toString();
+        if (!filename || !isSafeBasename(filename)) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Invalid or missing X-Filename header.');
+          return;
+        }
+        const declaredLength = parseInt(req.headers['content-length'], 10);
+        const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+          res.writeHead(413, { 'Content-Type': 'text/plain' });
+          res.end('Upload too large.');
+          return;
+        }
+        const tmpPath = path.join(
+          os.tmpdir(),
+          `airshelf-upload-${crypto.randomBytes(8).toString('hex')}-${filename}`,
+        );
+        const out = fs.createWriteStream(tmpPath);
+        let received = 0;
+        let aborted = false;
+        req.on('data', (chunk) => {
+          if (aborted) return;
+          received += chunk.length;
+          if (received > MAX_UPLOAD_BYTES) {
+            aborted = true;
+            out.destroy();
+            try { req.destroy(); } catch {}
+            try { fs.unlinkSync(tmpPath); } catch {}
+            res.writeHead(413, { 'Content-Type': 'text/plain' });
+            res.end('Upload exceeded size limit mid-stream.');
+          }
+        });
+        try {
+          await new Promise((resolve, reject) => {
+            req.pipe(out);
+            out.on('finish', resolve);
+            out.on('error', reject);
+            req.on('error', reject);
+          });
+        } catch (e) {
+          try { fs.unlinkSync(tmpPath); } catch {}
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end(`Upload write failed: ${e.message}`);
+          }
+          return;
+        }
+        if (aborted) return; // 413 already sent
+        let result;
+        try {
+          result = await addBook(tmpPath);
+        } catch (e) {
+          result = { error: e.message };
+        } finally {
+          try { fs.unlinkSync(tmpPath); } catch {}
+        }
+        if (result.book && mainWindow) mainWindow.webContents.send('books:changed');
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        res.end(JSON.stringify(result));
+        return;
+      }
       if (subPath === '/screenshot') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
