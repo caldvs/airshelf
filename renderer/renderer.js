@@ -341,12 +341,19 @@ async function loadServerInfo() {
   if (pairBareUrlEl) pairBareUrlEl.textContent = `http://${info.ip}:${info.port}/`;
 }
 
+// JS catch can receive any thrown value, not only Error/DOMException; reading
+// .message on a non-Error throws "Cannot read properties of …" and the toast
+// itself fails. errMsg() falls back to String() so the UI always renders.
+function errMsg(e) {
+  return (e && typeof e === 'object' && 'message' in e ? e.message : null) ?? String(e);
+}
+
 async function copyToClipboard(text, successMsg) {
   try {
     await navigator.clipboard.writeText(text);
     showToast(successMsg, 'success');
   } catch (e) {
-    showToast(`Copy failed: ${e.message}`, 'error');
+    showToast(`Copy failed: ${errMsg(e)}`, 'error');
   }
 }
 
@@ -430,7 +437,7 @@ async function refreshPairCode({ forceRotate = false } = {}) {
     pairCurrentExpiresAt = 0;
     pairUrlEl.textContent = 'pair unavailable';
     pairTtlEl.textContent = '';
-    showToast(`Pair code failed: ${e.message}`, 'error');
+    showToast(`Pair code failed: ${errMsg(e)}`, 'error');
     return;
   }
   pairUrlEl.textContent = info.pairUrl;

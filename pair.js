@@ -44,15 +44,17 @@ class PairCodeStore {
   // type whichever the screen showed last anyway) and would double the
   // server's exposure to brute-force attempts during the TTL.
   issue() {
-    this.codes.clear();
-    // Normalize+validate the generator's output so a future generator that
-    // returns lowercase (or chars outside the alphabet) can't produce an
-    // unconsumable code — consume() compares against the uppercase PAIR_CODE_RE.
+    // Normalize+validate the generator's output BEFORE clearing the existing
+    // entry, so a thrown validation error doesn't leave the store empty (the
+    // previously-active code remains usable instead of being silently wiped).
+    // consume() compares against the uppercase PAIR_CODE_RE, so we uppercase
+    // here too.
     const raw = this.generator();
     const code = typeof raw === 'string' ? raw.toUpperCase() : '';
     if (!PAIR_CODE_RE.test(code)) {
       throw new Error(`PairCodeStore generator returned invalid code: ${JSON.stringify(raw)}`);
     }
+    this.codes.clear();
     this.codes.set(code, this.now() + this.ttlMs);
     return code;
   }
@@ -76,6 +78,9 @@ class PairCodeStore {
   // and the 60-second TTL, not constant-time validation.
   consume(input) {
     if (typeof input !== 'string') return false;
+    // Length-check before uppercasing so a megabyte-long /pair/<…> doesn't
+    // allocate an O(N) uppercased copy just to be rejected by the regex.
+    if (input.length !== PAIR_CODE_LEN) return false;
     const upper = input.toUpperCase();
     if (!PAIR_CODE_RE.test(upper)) return false;
     this._sweep();

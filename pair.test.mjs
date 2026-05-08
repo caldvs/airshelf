@@ -117,6 +117,29 @@ describe('PairCodeStore', () => {
     expect(() => s.issue()).toThrow(/invalid code/);
   });
 
+  it('issue() leaves the previous code intact if the new generator throws', () => {
+    const clock = fakeClock();
+    const codes = ['ACDE', '0OIL']; // first valid, second garbage
+    const s = new PairCodeStore({
+      ttlMs: 60_000,
+      now: clock.now,
+      generator: () => codes.shift(),
+    });
+    s.issue();
+    expect(() => s.issue()).toThrow(/invalid code/);
+    // Previous code should still be active and consumable.
+    expect(s.consume('ACDE')).toBe(true);
+  });
+
+  it('consume() rejects long inputs without uppercasing them (DoS guard)', () => {
+    const clock = fakeClock();
+    const s = new PairCodeStore({ ttlMs: 60_000, now: clock.now });
+    s.issue();
+    // 1MB of "a" — a naive upper().test() would allocate O(N).
+    const giant = 'a'.repeat(1_000_000);
+    expect(s.consume(giant)).toBe(false);
+  });
+
   it('consume() rejects malformed input without throwing', () => {
     const clock = fakeClock();
     const s = new PairCodeStore({ ttlMs: 60_000, now: clock.now });
