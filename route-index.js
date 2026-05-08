@@ -4,8 +4,9 @@
 // the http server, and impossible to forget escaping.
 //
 // HTML escaping covers all title/author strings on the way into the DOM. The
-// download/cover URLs contain only the server token (already a hex string)
-// and the book id (also hex per addBook), so they don't need escaping.
+// download/cover URLs contain only the server token (a 6-letter lowercase
+// pronounceable string per auth.js TOKEN_RE) and the book id (hex per
+// addBook), so they don't need escaping.
 
 // These helpers duplicate the pair in main.js / src/utils.ts. Kept local so
 // route-index.js has no external imports beyond Node stdlib (it has none).

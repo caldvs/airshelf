@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { renderShelfHtml } from './route-index.js';
 
-const TOKEN = 'deadbeef0123';
+// Matches auth.js TOKEN_RE: 6 lowercase letters, pronounceable.
+const TOKEN = 'fluxar';
 const BOOK = {
   id: 'abc123',
   title: 'A Test Book',
