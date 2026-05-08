@@ -1386,3 +1386,13 @@ body.reader-light .reader {
   --reader-zone-hover-bg: rgba(0, 0, 0, 0.03);
   --reader-progress-track: rgba(0, 0, 0, 0.1);
 }
+
+/* Destructive variant for restore — overrides the accent fill with a
+   red-tinted outline. */
+.setting-btn-danger {
+  background: transparent;
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.4);
+}
+.setting-btn-danger:hover { border-color: #b91c1c; background: rgba(185, 28, 28, 0.06); }
+.setting-btn:disabled { opacity: 0.5; cursor: not-allowed; }

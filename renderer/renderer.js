@@ -300,6 +300,57 @@ document.getElementById('btn-copy').addEventListener('click', () => {
   showToast('Copied', 'success');
 });
 
+// ---- Backup / restore ----
+function humanBytes(n) {
+  if (!Number.isFinite(n) || n < 0) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+const btnBackup = document.getElementById('btn-backup');
+if (btnBackup) {
+  btnBackup.addEventListener('click', async () => {
+    btnBackup.disabled = true;
+    setBusy('Backing up…');
+    try {
+      const r = await window.airshelf.backupLibrary();
+      if (r && r.canceled) return;
+      if (r && r.ok) {
+        showToast(`Backed up ${r.bookCount} book${r.bookCount === 1 ? '' : 's'} (${humanBytes(r.size)})`, 'success');
+      } else {
+        showToast(`Backup failed: ${(r && r.error) || 'unknown error'}`, 'error');
+      }
+    } finally {
+      setBusy(null);
+      btnBackup.disabled = false;
+    }
+  });
+}
+
+const btnRestore = document.getElementById('btn-restore');
+if (btnRestore) {
+  btnRestore.addEventListener('click', async () => {
+    btnRestore.disabled = true;
+    setBusy('Restoring…');
+    try {
+      const r = await window.airshelf.restoreLibrary();
+      if (r && r.canceled) return;
+      if (r && r.ok) {
+        // Don't call refresh() here — main process emits books:changed
+        // during restore and onBooksChanged below already refreshes.
+        showToast(`Restored ${r.bookCount} book${r.bookCount === 1 ? '' : 's'}`, 'success');
+      } else {
+        showToast(`Restore failed: ${(r && r.error) || 'unknown error'}`, 'error');
+      }
+    } finally {
+      setBusy(null);
+      btnRestore.disabled = false;
+    }
+  });
+}
+
 // Listen for background migrations / changes from main
 if (window.airshelf.onBooksChanged) {
   window.airshelf.onBooksChanged(() => {

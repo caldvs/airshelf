@@ -264,6 +264,7 @@ async function getOrBuildReaderEpub(book) {
 }
 
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
+const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
 const authLimiter = new FailedAuthLimiter();
 
@@ -1660,6 +1661,179 @@ ipcMain.handle('cover:setFromFile', async (_e, bookId) => {
     return await setBookCoverFromBuffer(bookId, buf);
   } catch (e) {
     return { error: `Could not read file: ${e.message}` };
+  }
+});
+
+// ---------- Backup / restore ----------
+
+ipcMain.handle('library:backup', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Back up library',
+    defaultPath: `airshelf-backup-${today}.zip`,
+    filters: [{ name: 'Zip Archive', extensions: ['zip'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  try {
+    const meta = loadMeta();
+    const zip = new AdmZip();
+    zip.addFile(
+      'manifest.json',
+      Buffer.from(JSON.stringify(buildManifest({ bookCount: meta.books.length }), null, 2)),
+    );
+    // Write the sanitized meta (filtered by loadMeta) rather than raw
+    // metaFile bytes. If books.json contains entries that loadMeta would
+    // drop (unsafe basename, etc.), the backup would otherwise capture
+    // the bad entries and fail validateBackup on restore — and
+    // manifest.bookCount would mismatch the archived books.json.
+    zip.addFile('books.json', Buffer.from(JSON.stringify(meta, null, 2)));
+    if (fs.existsSync(booksDir)) zip.addLocalFolder(booksDir, 'books');
+    zip.writeZip(result.filePath);
+    const size = fs.statSync(result.filePath).size;
+    return { ok: true, path: result.filePath, size, bookCount: meta.books.length };
+  } catch (e) {
+    console.error('Backup failed:', e);
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('library:restore', async () => {
+  const open = await dialog.showOpenDialog(mainWindow, {
+    title: 'Restore library from backup',
+    properties: ['openFile'],
+    filters: [{ name: 'Zip Archive', extensions: ['zip'] }],
+  });
+  if (open.canceled || !open.filePaths[0]) return { canceled: true };
+  const zipPath = open.filePaths[0];
+
+  // Confirm before clobbering the current library. We don't peek inside the
+  // zip first because validation will reject it with a more useful error
+  // (manifest mismatch, traversal entry) than a count would convey.
+  const confirm = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: ['Cancel', 'Restore'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Replace current library?',
+    message: 'This will replace your current library with the contents of the backup.',
+    detail: 'Your existing books and metadata are renamed aside (with a `.backup-<timestamp>` suffix) so you can recover them manually if needed.',
+  });
+  if (confirm.response !== 1) return { canceled: true };
+
+  let stagingDir = null;
+  try {
+    let zip;
+    try { zip = new AdmZip(zipPath); }
+    catch (e) { return { error: `Could not read zip: ${e.message}` }; }
+    const entries = zip.getEntries();
+
+    // Quota guards against a zip bomb or accidentally selected non-backup
+    // file. Numbers are generous so a real personal library never trips
+    // them; the goal is to refuse pathological inputs before we start
+    // decompressing 1000x ratios into memory.
+    const MAX_ENTRIES = 50_000;
+    const MAX_TOTAL_UNCOMPRESSED = 50 * 1024 * 1024 * 1024; // 50 GB
+    const MAX_JSON_BYTES = 4 * 1024 * 1024;                 // 4 MB for manifest/books.json
+    if (entries.length > MAX_ENTRIES) {
+      return { error: `Backup has too many entries (${entries.length} > ${MAX_ENTRIES}).` };
+    }
+    let totalUncompressed = 0;
+    for (const e of entries) {
+      const size = (e.header && Number(e.header.size)) || 0;
+      if (size < 0) return { error: 'Backup entry has invalid size.' };
+      totalUncompressed += size;
+      if (totalUncompressed > MAX_TOTAL_UNCOMPRESSED) {
+        return { error: 'Backup uncompressed size exceeds limit (50 GB).' };
+      }
+    }
+
+    const manifestEntry = entries.find(e => e.entryName === 'manifest.json');
+    let manifest = null;
+    if (manifestEntry) {
+      if ((manifestEntry.header && Number(manifestEntry.header.size)) > MAX_JSON_BYTES) {
+        return { error: 'Backup manifest.json is unreasonably large.' };
+      }
+      try { manifest = JSON.parse(manifestEntry.getData().toString('utf8')); }
+      catch { return { error: 'Backup manifest.json is corrupt.' }; }
+    }
+    const booksJsonEntry = entries.find(e => e.entryName === 'books.json');
+    let backupMeta = null;
+    if (booksJsonEntry) {
+      if ((booksJsonEntry.header && Number(booksJsonEntry.header.size)) > MAX_JSON_BYTES) {
+        return { error: 'Backup books.json is unreasonably large.' };
+      }
+      try { backupMeta = JSON.parse(booksJsonEntry.getData().toString('utf8')); }
+      catch { return { error: 'Backup books.json is corrupt.' }; }
+    }
+    // Pull every flat file under books/ from the archive. Reject directory
+    // entries upfront — the validator only handles single basenames.
+    const fileNames = [];
+    const fileEntries = [];
+    for (const e of entries) {
+      if (!e.entryName.startsWith('books/')) continue;
+      if (e.isDirectory) continue;
+      const rel = e.entryName.slice('books/'.length);
+      fileNames.push(rel);
+      fileEntries.push(e);
+    }
+    const v = validateBackup({ manifest, meta: backupMeta, fileNames });
+    if (!v.ok) return { error: v.error };
+
+    // Stage the restore under userData so the eventual rename is same-volume
+    // and atomic. If any write fails, we abort before touching live state.
+    const userData = app.getPath('userData');
+    stagingDir = path.join(userData, `restore-staging-${Date.now()}`);
+    const stagingBooks = path.join(stagingDir, 'books');
+    fs.mkdirSync(stagingBooks, { recursive: true });
+    // extractEntryTo streams to disk instead of buffering the full
+    // decompressed file in memory via getData(). With multi-GB ebooks
+    // a single getData() call could OOM the main process even though
+    // the total-size quota above passed.
+    for (const e of fileEntries) {
+      zip.extractEntryTo(e, stagingBooks, /*maintainEntryPath*/ false, /*overwrite*/ true);
+    }
+    fs.writeFileSync(path.join(stagingDir, 'books.json'), booksJsonEntry.getData());
+
+    // Swap with rollback. The four renames are not atomic as a group, but
+    // we track which steps succeeded so a mid-sequence failure can undo
+    // them and leave the library at its original paths. If rollback
+    // itself fails, the .backup-<ts> aside files remain for manual
+    // recovery and we surface explicit instructions in the error.
+    const ts = Date.now();
+    const oldBooksAside = `${booksDir}.backup-${ts}`;
+    const oldMetaAside = `${metaFile}.backup-${ts}`;
+    const stagedBooksJson = path.join(stagingDir, 'books.json');
+    let stage = 0;
+    try {
+      if (fs.existsSync(booksDir)) { fs.renameSync(booksDir, oldBooksAside); stage = 1; }
+      if (fs.existsSync(metaFile)) { fs.renameSync(metaFile, oldMetaAside); stage = 2; }
+      fs.renameSync(stagingBooks, booksDir); stage = 3;
+      fs.renameSync(stagedBooksJson, metaFile); stage = 4;
+    } catch (swapErr) {
+      try {
+        if (stage >= 4) fs.renameSync(metaFile, stagedBooksJson);
+        if (stage >= 3) fs.renameSync(booksDir, stagingBooks);
+        if (stage >= 2) fs.renameSync(oldMetaAside, metaFile);
+        if (stage >= 1) fs.renameSync(oldBooksAside, booksDir);
+      } catch (rollbackErr) {
+        return {
+          error: `Restore swap failed (${swapErr.message}) and rollback also failed (${rollbackErr.message}). Recover manually: rename ${oldBooksAside} → ${path.basename(booksDir)} and ${oldMetaAside} → ${path.basename(metaFile)}.`,
+        };
+      }
+      return { error: `Restore swap failed: ${swapErr.message}. Library left intact.` };
+    }
+    try { fs.rmdirSync(stagingDir); } catch {}
+    stagingDir = null;
+
+    metaCache = null;
+    if (mainWindow) mainWindow.webContents.send('books:changed');
+    return { ok: true, bookCount: backupMeta.books.length };
+  } catch (e) {
+    console.error('Restore failed:', e);
+    if (stagingDir) {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+    }
+    return { error: e.message };
   }
 });
 
