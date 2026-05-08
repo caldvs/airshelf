@@ -266,6 +266,7 @@ async function getOrBuildReaderEpub(book) {
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
 const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const { authoriseRequest } = require('./route-auth.js');
 const authLimiter = new FailedAuthLimiter();
 
 let mainWindow = null;
@@ -1229,21 +1230,21 @@ function startServer() {
   server = http.createServer(async (req, res) => {
     const ip = req.socket.remoteAddress || 'unknown';
     try {
-      // Per-IP rate limit: with a 6-char token (~20 bits), throttling is what
-      // keeps brute-force impractical. Block returns 404 (stealth) not 429.
-      if (authLimiter.isBlocked(ip)) {
-        res.writeHead(404); res.end('Not found'); return;
-      }
       const url = new URL(req.url, `http://${req.headers.host}`);
-      // Require /<6-lowercase-token>/... on every request. Without it, 404
-      // (not 401) so the server is indistinguishable from no server at all.
-      const tokMatch = url.pathname.match(/^\/([a-z]{6})(\/.*)?$/);
-      if (!tokMatch || !tokensMatch(tokMatch[1], serverToken)) {
-        authLimiter.recordFail(ip);
-        res.writeHead(404); res.end('Not found'); return;
+      // Token + per-IP rate-limit gate. See route-auth.js for the rules; a
+      // bad/missing token returns a stealth 404 (not 401) so the server is
+      // indistinguishable from no server at all to a port-scan.
+      const auth = authoriseRequest({
+        pathname: url.pathname,
+        ip,
+        expectedToken: serverToken,
+        limiter: authLimiter,
+        tokensMatch,
+      });
+      if (!auth.allow) {
+        res.writeHead(auth.status); res.end('Not found'); return;
       }
-      authLimiter.recordSuccess(ip);
-      const subPath = tokMatch[2] || '/';
+      const subPath = auth.subPath;
       if (subPath === '/screenshot') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',

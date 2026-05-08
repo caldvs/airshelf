@@ -35,6 +35,7 @@
       "hash.js",
       "concurrency.js",
       "backup.js",
+      "route-auth.js",
       "renderer/**/*",
       "build/icon.icns",
       "build/icon_256.png",
