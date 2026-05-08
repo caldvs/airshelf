@@ -5,7 +5,7 @@ import {
   extractSeries,
   guessAuthorFromFilename,
   shouldUseOpenLibraryTitle,
-} from './titles.js';
+} from './lib/titles.js';
 
 describe('titlesMatch', () => {
   it('matches identical titles', () => {

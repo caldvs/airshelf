@@ -1,4 +1,4 @@
-const { isSafeBasename } = require('./lib/safety.js');
+const { isSafeBasename } = require('./out/lib/safety.js');
 
 // Manifest version bump = breaking change to the backup format. Older apps
 // must refuse to restore newer versions; newer apps may accept older ones if

@@ -6,7 +6,7 @@ import {
   assertExternalUrl,
   isSafeExternalScheme,
   isSafeBasename,
-} from './lib/safety.js';
+} from './out/lib/safety.js';
 
 describe('isPrivateIpv4', () => {
   it('flags RFC1918 ranges', () => {
