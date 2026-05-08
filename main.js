@@ -39,7 +39,7 @@ const PORT = parseInt(process.env.PORT, 10) || 6790;
 
 // Files the Kindle experimental browser can download directly
 const { normalizeKindleMetadata } = require('./inject-asin.js');
-const { titlesMatch, cleanTitle, guessAuthorFromFilename } = require('./titles.js');
+const { titlesMatch, cleanTitle, extractSeries, guessAuthorFromFilename } = require('./titles.js');
 
 const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us
@@ -619,10 +619,25 @@ async function addBook(srcPath) {
     coverFile = `${id}.cover`;
     await resizeCoverInPlace(coverCandidate);
   }
-  // Fall back to the filename and clean it up
+  // Fall back to the filename and clean it up.
   const rawBase = path.basename(srcPath, ext);
   if (!title) title = rawBase;
-  title = cleanTitle(title);
+  // Extract series before cleanTitle strips the parenthetical — extractSeries
+  // returns the cleaned title plus any `(Series #N)` info found in the raw form.
+  const seriesInfo = extractSeries(title);
+  title = seriesInfo.title;
+  let series = seriesInfo.series;
+  let seriesIndex = seriesInfo.seriesIndex;
+  // Also try the filename if the title-derived path had no parenthetical —
+  // file metadata sometimes stores a clean title while the filename keeps the
+  // series marker.
+  if (!series) {
+    const fromFile = extractSeries(rawBase);
+    if (fromFile.series) {
+      series = fromFile.series;
+      seriesIndex = fromFile.seriesIndex;
+    }
+  }
   if (!author) author = guessAuthorFromFilename(rawBase);
   if (author) author = author.replace(/\s+/g, ' ').trim();
 
@@ -716,6 +731,8 @@ async function addBook(srcPath) {
     title,
     author,
     year,
+    series,
+    seriesIndex,
     originalName: path.basename(srcPath),
     originalFile: originalFileName,
     file: kindleFile,          // what we serve to the Kindle
@@ -780,6 +797,28 @@ async function migrateExistingBooks() {
     } catch {}
   }
   if (changed) saveMeta(meta);
+
+  // Backfill series + seriesIndex from the original filename for books
+  // added before #42. The fields default to null; only books where they
+  // are still undefined (predate the schema) get touched, so a manual
+  // null doesn't get re-derived. originalName preserves the raw filename
+  // including the (Series #N) parenthetical, so we extract from there.
+  let seriesChanged = false;
+  for (const book of meta.books) {
+    if (book.series !== undefined) continue;
+    book.series = null;
+    book.seriesIndex = null;
+    const source = book.originalName || book.title;
+    if (source) {
+      const info = extractSeries(source);
+      if (info.series) {
+        book.series = info.series;
+        book.seriesIndex = info.seriesIndex;
+      }
+    }
+    seriesChanged = true;
+  }
+  if (seriesChanged) saveMeta(meta);
 
   for (const book of meta.books) {
     const ext = `.${book.ext}`;

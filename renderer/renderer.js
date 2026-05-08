@@ -136,6 +136,19 @@ function renderBooks(books, opts = {}) {
         card.append(yr);
       }
 
+      // Series badge — small, italic, sits between the author/year and the
+      // size line. We only render when the series field is non-null;
+      // seriesIndex is optional ("Boxed Set" rows still match nothing today
+      // but a future relaxed regex might extract series without an index).
+      if (b.series) {
+        const seriesEl = document.createElement('div');
+        seriesEl.className = 'book-series';
+        seriesEl.textContent = b.seriesIndex != null
+          ? `${b.series} #${b.seriesIndex}`
+          : b.series;
+        card.append(seriesEl);
+      }
+
       const size = document.createElement('div');
       size.className = 'book-size';
       const convertedLabel = b.converted ? ` · ${b.sourceExt.toUpperCase()}→AZW3` : '';
