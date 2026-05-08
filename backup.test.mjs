@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MANIFEST_VERSION, buildManifest, validateBackup } from './backup.js';
+import { MANIFEST_VERSION, buildManifest, validateBackup } from './out/domain/backup.js';
 
 const safeBook = {
   id: 'abc123',
