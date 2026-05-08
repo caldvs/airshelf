@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createSettingsStore } from './settings.js';
+import { createSettingsStore } from './out/domain/settings.js';
 
 describe('createSettingsStore', () => {
   let dir;

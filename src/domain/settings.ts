@@ -10,7 +10,14 @@
 // can spin up isolated stores against a tmpdir without touching shared
 // module state.
 
-const fs = require('fs');
+import { readFileSync, renameSync, writeFileSync } from 'fs';
+
+export type SettingsRecord = Record<string, unknown>;
+
+export interface SettingsStore {
+  load(): SettingsRecord;
+  save(patch: SettingsRecord | null | undefined): SettingsRecord;
+}
 
 // Keys we refuse to copy out of a parsed settings.json or accept from a
 // caller's `save(patch)`. A tampered file containing `__proto__` could
@@ -21,31 +28,31 @@ const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 // Copy own enumerable keys from `src` into a fresh null-prototype object,
 // skipping FORBIDDEN_KEYS. Used both at load (sanitise what's on disk)
 // and at save (sanitise the caller's patch).
-function sanitise(src) {
-  const out = Object.create(null);
+function sanitise(src: unknown): SettingsRecord {
+  const out: SettingsRecord = Object.create(null);
   if (!src || typeof src !== 'object' || Array.isArray(src)) return out;
-  for (const k of Object.keys(src)) {
+  for (const k of Object.keys(src as object)) {
     if (FORBIDDEN_KEYS.has(k)) continue;
-    out[k] = src[k];
+    out[k] = (src as SettingsRecord)[k];
   }
   return out;
 }
 
-function createSettingsStore(filePath) {
+export function createSettingsStore(filePath: string | null | undefined): SettingsStore {
   // Cache the parsed object so repeated load() calls don't re-read the
   // disk. Save() writes through the cache before persisting so a load()
   // following a save() always returns the new value, even if the disk
   // write hadn't finished syncing yet.
-  let cache = null;
+  let cache: SettingsRecord | null = null;
 
-  function load() {
+  function load(): SettingsRecord {
     if (cache) return cache;
     if (!filePath) {
       cache = sanitise(null);
       return cache;
     }
     try {
-      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const raw = JSON.parse(readFileSync(filePath, 'utf8'));
       // Plain object only — reject arrays (typeof [] === 'object') and
       // null. A malformed/tampered settings.json shouldn't poison save();
       // sanitise() additionally drops `__proto__`-style keys before they
@@ -57,13 +64,13 @@ function createSettingsStore(filePath) {
     return cache;
   }
 
-  function save(patch) {
+  function save(patch: SettingsRecord | null | undefined): SettingsRecord {
     // Sanitise both halves: load() already sanitised the loaded object,
     // but the caller's `patch` could still carry __proto__ if it came
     // from JSON.parse upstream. Build into a null-prototype object so
     // even an undetected forbidden key can't reach Object.prototype.
     const cleanPatch = sanitise(patch);
-    const next = Object.create(null);
+    const next: SettingsRecord = Object.create(null);
     Object.assign(next, load(), cleanPatch);
     // Drop nulls so calling save({ calibreBinDir: null }) actually forgets
     // the key rather than persisting a `null` value the consumer would
@@ -76,12 +83,10 @@ function createSettingsStore(filePath) {
     // Atomic write: tmp file + rename. A crash mid-write leaves the
     // previous settings.json intact rather than truncated.
     const tmp = `${filePath}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-    fs.renameSync(tmp, filePath);
+    writeFileSync(tmp, JSON.stringify(next, null, 2));
+    renameSync(tmp, filePath);
     return next;
   }
 
   return { load, save };
 }
-
-module.exports = { createSettingsStore };
