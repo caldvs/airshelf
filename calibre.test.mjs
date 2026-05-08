@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { readCalibreLibrary } from './calibre.js';
+import { readCalibreLibrary } from './out/integrations/calibre.js';
 
 // better-sqlite3 is a CommonJS native module; bring it in through `require`
 // so we don't fight ESM interop in the test runner.

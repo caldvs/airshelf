@@ -62,7 +62,6 @@
       "main.js",
       "preload.js",
       "out/**/*",
-      "calibre.js",
       "openlibrary.js",
       "route-auth.js",
       "route-cover.js",
