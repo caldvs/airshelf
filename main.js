@@ -479,98 +479,17 @@ function extractEpubTitle(epubPath) {
 // titlesMatch / cleanTitle / guessAuthorFromFilename moved to ./titles.js
 // — single canonical impl, requires above.
 
-// Query Open Library search for a book. Returns the first matching doc or null.
-// Tries multiple query variants so that messy filename-derived titles still match.
-// Biases toward English editions so we don't e.g. pick a Spanish cover for an
-// English book.
-async function searchOpenLibrary(title, author) {
-  if (!title) return null;
-  const variants = new Set();
-  const cleaned = cleanTitle(title);
-  if (cleaned) variants.add(cleaned);
-  // Try the portion before a colon subtitle
-  if (cleaned.includes(':')) variants.add(cleaned.split(':')[0].trim());
-  // Fall back to the raw title
-  variants.add(title);
-
-  const isEnglish = (doc) => Array.isArray(doc.language) && doc.language.includes('eng');
-  // Score a candidate: English + has cover > English only > has cover > anything
-  const score = (doc) => (isEnglish(doc) ? 2 : 0) + (doc.cover_i ? 1 : 0);
-
-  let best = null;
-  let bestScore = -1;
-  for (const variant of variants) {
-    if (!variant || variant.length < 2) continue;
-    try {
-      const q = new URLSearchParams({ title: variant });
-      if (author) q.set('author', author);
-      q.set('limit', '5');
-      const res = await fetch(`https://openlibrary.org/search.json?${q.toString()}`, {
-        headers: { 'User-Agent': 'Airshelf/0.1 (ebook helper)' },
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const docs = Array.isArray(data.docs) ? data.docs : [];
-      for (const doc of docs) {
-        const s = score(doc);
-        if (s > bestScore) {
-          best = doc;
-          bestScore = s;
-          if (bestScore === 3) return best; // English + cover, can't beat it
-        }
-      }
-    } catch {}
-  }
-  return best;
-}
-
-// Download a cover image for an Open Library doc. Returns true on success.
-async function downloadOpenLibraryCover(doc, outPath) {
-  if (!doc) return false;
-  const attempts = [];
-  if (doc.cover_i) attempts.push(`https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`);
-  if (doc.isbn && doc.isbn[0]) attempts.push(`https://covers.openlibrary.org/b/isbn/${doc.isbn[0]}-L.jpg`);
-  if (doc.edition_key && doc.edition_key[0]) attempts.push(`https://covers.openlibrary.org/b/olid/${doc.edition_key[0]}-L.jpg`);
-  for (const url of attempts) {
-    try {
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'Airshelf/0.1 (ebook helper)' },
-      });
-      if (!res.ok) continue;
-      const buf = Buffer.from(await res.arrayBuffer());
-      // Open Library returns a tiny placeholder when no cover exists
-      if (buf.length < 1000) continue;
-      fs.writeFileSync(outPath, buf);
-      return true;
-    } catch {}
-  }
-  return false;
-}
-
-// Legacy helper: fetch + rescue cover in one shot
-async function fetchCoverFromOpenLibrary(title, author, outPath) {
-  const doc = await searchOpenLibrary(title, author);
-  return doc ? await downloadOpenLibraryCover(doc, outPath) : false;
-}
-
-// Fetch a description for a book from Open Library's works API.
-// Falls back gracefully to null if the API is unreachable or has no description.
-async function fetchOpenLibraryDescription(doc) {
-  try {
-    const key = doc.key; // e.g. "/works/OL12345W"
-    if (!key) return null;
-    const res = await fetch(`https://openlibrary.org${key}.json`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.description) return null;
-    // description can be a string or { type: '/type/text', value: '...' }
-    return typeof data.description === 'string'
-      ? data.description
-      : (data.description.value || null);
-  } catch {
-    return null;
-  }
-}
+// Open Library client moved to ./openlibrary.js — same network behaviour,
+// now unit-tested with stubbed `fetch`. The functions remain in this scope
+// under the same names so addBook / migrateExistingBooks call sites don't
+// have to change. fetchCoverFromOpenLibrary is exported by openlibrary.js
+// but main.js doesn't currently call it (the search + download halves are
+// invoked separately so the doc is reused for description fetching too).
+const {
+  searchOpenLibrary,
+  downloadOpenLibraryCover,
+  fetchOpenLibraryDescription,
+} = require('./openlibrary.js');
 
 // `displayName` lets the /upload route preserve the user's filename for
 // title/author fallback even though the actual srcPath is a randomised

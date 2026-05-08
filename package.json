@@ -65,6 +65,7 @@
       "concurrency.js",
       "backup.js",
       "calibre.js",
+      "openlibrary.js",
       "route-auth.js",
       "route-cover.js",
       "route-range.js",
