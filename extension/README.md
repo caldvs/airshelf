@@ -49,8 +49,8 @@ URL.
 
 Airshelf's `/upload` endpoint refuses non-loopback connections —
 non-loopback writes would let any device on the LAN inject books into
-your library. The extension runs in the same browser process tree as
-Airshelf (both on your Mac), so loopback is the right boundary.
+your library. The extension and Airshelf both run on the same machine,
+so the upload travels over `127.0.0.1` and never leaves it.
 
 ## Security notes
 

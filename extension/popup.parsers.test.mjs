@@ -1,32 +1,9 @@
 // Pure-function tests for the popup's URL parser + filename derivation.
-// The popup itself is browser-coupled (chrome.* APIs), so we copy the
-// pure helpers here and test them directly. If they drift, the test
-// catches it — not the extension going silent at runtime.
+// Imports from the shared parsers module so popup.js and the test stay
+// in lockstep — addressing the duplication noted in #73's review.
 
 import { describe, it, expect } from 'vitest';
-
-const URL_RE = /^(https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?)\/([a-z]{6})\/?$/;
-
-function parseKindleUrl(input) {
-  const m = (input || '').trim().match(URL_RE);
-  if (!m) return null;
-  return { base: m[1], token: m[2] };
-}
-
-function deriveFilename(url, fallback = 'page.pdf') {
-  try {
-    const u = new URL(url);
-    const last = u.pathname.split('/').filter(Boolean).pop() || '';
-    const decoded = (() => {
-      try { return decodeURIComponent(last); } catch { return last; }
-    })();
-    if (!decoded) return fallback;
-    if (/\.[a-z0-9]{2,5}$/i.test(decoded)) return decoded;
-    return decoded + '.pdf';
-  } catch {
-    return fallback;
-  }
-}
+import { parseKindleUrl, deriveFilename, errorMessage } from './parsers.js';
 
 describe('parseKindleUrl', () => {
   it('parses http://127.0.0.1:6790/<token>/', () => {
@@ -66,6 +43,14 @@ describe('parseKindleUrl', () => {
     expect(parseKindleUrl('http://example.com/abcdef/')).toBeNull();
   });
 
+  it('rejects https:// (host_permissions are http only)', () => {
+    expect(parseKindleUrl('https://127.0.0.1:6790/abcdef/')).toBeNull();
+  });
+
+  it('rejects non-6790 ports (host_permissions pin to 6790)', () => {
+    expect(parseKindleUrl('http://127.0.0.1:8080/abcdef/')).toBeNull();
+  });
+
   it('returns null on garbage', () => {
     expect(parseKindleUrl('')).toBeNull();
     expect(parseKindleUrl(undefined)).toBeNull();
@@ -74,7 +59,7 @@ describe('parseKindleUrl', () => {
 });
 
 describe('deriveFilename', () => {
-  it('uses the last path segment when it has an extension', () => {
+  it('uses the last path segment when it has an allowed extension', () => {
     expect(deriveFilename('https://example.com/papers/foo.pdf')).toBe('foo.pdf');
   });
 
@@ -88,6 +73,10 @@ describe('deriveFilename', () => {
     );
   });
 
+  it('appends .pdf when the URL extension is not in the ebook allowlist', () => {
+    expect(deriveFilename('https://example.com/page.html')).toBe('page.html.pdf');
+  });
+
   it('falls back when the URL has no path', () => {
     expect(deriveFilename('https://example.com/')).toBe('page.pdf');
   });
@@ -98,5 +87,38 @@ describe('deriveFilename', () => {
 
   it('preserves a known ebook extension (.epub) without doubling it', () => {
     expect(deriveFilename('https://example.com/book.epub')).toBe('book.epub');
+  });
+
+  it('replaces path separators in a decoded filename (%2F → _)', () => {
+    expect(deriveFilename('https://example.com/foo%2Fbar.pdf')).toBe('foo_bar.pdf');
+  });
+
+  it('replaces NUL bytes in a decoded filename (%00 → _)', () => {
+    expect(deriveFilename('https://example.com/foo%00.pdf')).toBe('foo_.pdf');
+  });
+
+  it('caps very long filenames so the X-Filename header stays sane', () => {
+    const url = 'https://example.com/' + 'x'.repeat(500) + '.pdf';
+    expect(deriveFilename(url).length).toBeLessThanOrEqual(204); // 200 + .pdf
+  });
+});
+
+describe('errorMessage', () => {
+  it('returns Error.message for Error instances', () => {
+    expect(errorMessage(new Error('boom'))).toBe('boom');
+  });
+
+  it('returns the string itself for thrown strings', () => {
+    expect(errorMessage('nope')).toBe('nope');
+  });
+
+  it('serialises arbitrary objects', () => {
+    expect(errorMessage({ code: 42 })).toBe('{"code":42}');
+  });
+
+  it('falls back to String() for non-serialisable values', () => {
+    const circ = {};
+    circ.self = circ;
+    expect(typeof errorMessage(circ)).toBe('string');
   });
 });

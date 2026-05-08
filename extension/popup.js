@@ -6,6 +6,8 @@
 // Token is kept in `chrome.storage.local` (synced devices don't share
 // the loopback URL anyway).
 
+import { parseKindleUrl, deriveFilename, errorMessage } from './parsers.js';
+
 const $ = (sel) => document.querySelector(sel);
 
 const setupSection = $('#setup-section');
@@ -18,19 +20,6 @@ const sendBtn = $('#send-btn');
 const unpairBtn = $('#unpair-btn');
 const pageTitleEl = $('#page-title');
 const pairedHostEl = $('#paired-host');
-
-// Allow http://127.0.0.1:PORT/<token>/ (with or without trailing slash). The
-// loopback IP and the lowercase 6-char token are both required by the
-// Airshelf server, so duplicating the check here surfaces a clear error
-// before we try to send. localhost is also allowed since some browsers
-// resolve it differently than 127.0.0.1.
-const URL_RE = /^(https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?)\/([a-z]{6})\/?$/;
-
-function parseKindleUrl(input) {
-  const m = (input || '').trim().match(URL_RE);
-  if (!m) return null;
-  return { base: m[1], token: m[2] };
-}
 
 async function getPaired() {
   const out = await chrome.storage.local.get(['base', 'token']);
@@ -54,25 +43,6 @@ function setStatus(el, msg, kind = 'info') {
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
-}
-
-// Strip query/hash, take the path basename, decode it, and pin the
-// extension to .pdf if the URL had no extension. Airshelf rejects
-// uploads via X-Filename whose extension isn't in its allowlist, so the
-// extension is what determines whether the upload succeeds.
-function deriveFilename(url, fallback = 'page.pdf') {
-  try {
-    const u = new URL(url);
-    const last = u.pathname.split('/').filter(Boolean).pop() || '';
-    const decoded = (() => {
-      try { return decodeURIComponent(last); } catch { return last; }
-    })();
-    if (!decoded) return fallback;
-    if (/\.[a-z0-9]{2,5}$/i.test(decoded)) return decoded;
-    return decoded + '.pdf';
-  } catch {
-    return fallback;
-  }
 }
 
 async function send() {
@@ -100,7 +70,7 @@ async function send() {
     }
     blob = await resp.blob();
   } catch (e) {
-    setStatus(sendStatus, `Fetch failed: ${e.message}`, 'error');
+    setStatus(sendStatus, `Fetch failed: ${errorMessage(e)}`, 'error');
     sendBtn.disabled = false;
     return;
   }
@@ -121,7 +91,7 @@ async function send() {
       setStatus(sendStatus, `Sent ${filename}.`, 'success');
     }
   } catch (e) {
-    setStatus(sendStatus, `Upload failed: ${e.message}`, 'error');
+    setStatus(sendStatus, `Upload failed: ${errorMessage(e)}`, 'error');
   }
   sendBtn.disabled = false;
 }

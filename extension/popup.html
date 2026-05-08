@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Send to Airshelf</title>
@@ -10,7 +10,7 @@
     <h1>Send to Airshelf</h1>
 
     <section id="setup-section">
-      <p class="hint">Paste your Airshelf Kindle URL — found in the app under <em>Send</em>.</p>
+      <label for="kindle-url" class="hint">Paste your Airshelf Kindle URL — found in the app under <em>Send</em>.</label>
       <input type="text" id="kindle-url" placeholder="http://127.0.0.1:6790/abcdef/" autocomplete="off" spellcheck="false">
       <button id="save-token-btn">Pair</button>
       <p class="status hidden" id="setup-status"></p>
@@ -27,6 +27,6 @@
       <p class="status" id="send-status"></p>
     </section>
   </div>
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>
