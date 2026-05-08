@@ -8,7 +8,7 @@ const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
 const { Bonjour } = require('bonjour-service');
 const { hashFileSha1 } = require('./lib/hash.js');
-const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
+const { mapWithConcurrency, createSerialQueue } = require('./lib/concurrency.js');
 const { readCalibreLibrary } = require('./calibre.js');
 
 // FIFO around the two atomic load-then-write blocks in addBook (the
