@@ -9,7 +9,7 @@ import {
   generatePronounceableToken,
   FailedAuthLimiter,
   TOKEN_RE,
-} from './auth.js';
+} from './lib/auth.js';
 
 describe('tokensMatch', () => {
   it('matches identical strings', () => {

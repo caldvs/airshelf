@@ -337,7 +337,7 @@ const {
   loadOrCreateServerToken,
   rotateServerToken,
   FailedAuthLimiter,
-} = require('./auth.js');
+} = require('./lib/auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handlePairRequest } = require('./route-pair.js');

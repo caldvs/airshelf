@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { parseTokenPath, authoriseRequest } from './route-auth.js';
-import { FailedAuthLimiter, tokensMatch } from './auth.js';
+import { FailedAuthLimiter, tokensMatch } from './lib/auth.js';
 
 const TOKEN = 'kiwifx';
 
