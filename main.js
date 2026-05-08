@@ -997,6 +997,14 @@ function getLocalIP() {
   return '127.0.0.1';
 }
 
+// Loopback gate for write-side endpoints (#37 /upload). The server listens
+// on 0.0.0.0 so the Kindle can read; we don't want to expose mutating
+// routes on the LAN under just the ~20-bit token.
+function isLoopback(addr) {
+  if (typeof addr !== 'string') return false;
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
 function humanSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -1317,14 +1325,22 @@ function startServer() {
       }
       const subPath = auth.subPath;
       // CLI / future-extension upload (#37). Same token as the rest of the
-      // server, but only honoured for POST. Request body is the raw bytes
-      // of one ebook; the original filename comes in via X-Filename so the
-      // saved file can pick up the right extension and (via cleanTitle)
-      // a sensible fallback title. Cap is generous (1 GB) — large PDFs are
-      // common, but we won't accept multi-GB blobs by accident.
+      // server, but only honoured for POST and only from loopback — the
+      // server itself listens on 0.0.0.0 for the Kindle's read traffic, but
+      // a write surface protected only by the ~20-bit token is too thin a
+      // perimeter for LAN exposure. Body is the raw bytes of one ebook;
+      // the original filename comes in via X-Filename so the saved file
+      // can pick up the right extension and (via cleanTitle) a sensible
+      // fallback title. Cap is generous (1 GB) — large PDFs are common,
+      // but we won't accept multi-GB blobs by accident.
       if (subPath === '/upload' && req.method === 'POST') {
+        if (!isLoopback(req.socket.remoteAddress)) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not found');
+          return;
+        }
         const filename = (req.headers['x-filename'] || '').toString();
-        if (!filename || !isSafeBasename(filename)) {
+        if (!filename || filename.length > 255 || !isSafeBasename(filename)) {
           res.writeHead(400, { 'Content-Type': 'text/plain' });
           res.end('Invalid or missing X-Filename header.');
           return;
@@ -1336,11 +1352,18 @@ function startServer() {
           res.end('Upload too large.');
           return;
         }
+        // Tmp filename keeps the *extension* so addBook's format probe and
+        // cleanTitle work, but drops the user-supplied basename — which
+        // could leak metadata into a world-readable temp dir, and (even
+        // after isSafeBasename) be long enough to ENAMETOOLONG on some
+        // filesystems. The unique random hex is the new stem; mode 0o600
+        // restricts read access to this user.
+        const ext = path.extname(filename);
         const tmpPath = path.join(
           os.tmpdir(),
-          `airshelf-upload-${crypto.randomBytes(8).toString('hex')}-${filename}`,
+          `airshelf-upload-${crypto.randomBytes(8).toString('hex')}${ext}`,
         );
-        const out = fs.createWriteStream(tmpPath);
+        const out = fs.createWriteStream(tmpPath, { mode: 0o600 });
         let received = 0;
         let aborted = false;
         req.on('data', (chunk) => {
@@ -1361,12 +1384,18 @@ function startServer() {
             out.on('finish', resolve);
             out.on('error', reject);
             req.on('error', reject);
+            // 'aborted' fires when the client closes mid-upload before
+            // 'end'. Without this the promise never settles and the
+            // handler hangs forever, leaving a partial tmp file behind.
+            req.on('aborted', () => reject(new Error('client aborted upload')));
           });
         } catch (e) {
           try { fs.unlinkSync(tmpPath); } catch {}
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'text/plain' });
-            res.end(`Upload write failed: ${e.message}`);
+            // Match the leak-suppression posture used elsewhere in the
+            // request handler (see the catch blocks at the bottom).
+            res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Upload write failed: ${e.message}`);
           }
           return;
         }
