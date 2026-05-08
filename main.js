@@ -1344,7 +1344,7 @@ function startServer() {
       // process console and surface the message to the client (only in
       // non-production; production builds shouldn't leak internals).
       console.error('[server] request failed', req.method, req.url, '\n', e);
-      res.writeHead(500);
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
     }
   });
