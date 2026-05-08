@@ -632,28 +632,41 @@ body {
 }
 
 /* Series stack — visually distinct from a regular book card so a user can
- * spot at a glance that a tile holds multiple books. The two pseudo-element
- * "rear cover" layers behind the foreground cover create the stacked-paper
- * silhouette without needing a real second image. */
-.series-stack .book-cover {
+ * spot at a glance that a tile holds multiple books. Two pseudo-element
+ * "rear cover" layers sit behind the foreground cover to suggest stacked
+ * paper. They have to live on the .series-stack wrapper rather than the
+ * cover itself because .book-cover sets `overflow: hidden` to clip the
+ * artwork — pseudos translated outside the cover bounds would be clipped
+ * and the stack effect would never render. */
+.series-stack {
   position: relative;
-  z-index: 1;
 }
-.series-stack .book-cover::before,
-.series-stack .book-cover::after {
+.series-stack::before,
+.series-stack::after {
   content: "";
   position: absolute;
-  inset: 0;
+  /* Match the .book-cover footprint at the top of the card. */
+  top: 0;
+  left: 50%;
+  width: 110px;
+  height: 156px;
+  margin-left: -55px;
   background: var(--bg-elev);
   border-radius: 4px;
   box-shadow: var(--shadow-1);
-  z-index: -1;
+  z-index: 0;
+  pointer-events: none;
 }
-.series-stack .book-cover::before {
+.series-stack::before {
   transform: translate(4px, 4px);
 }
-.series-stack .book-cover::after {
+.series-stack::after {
   transform: translate(8px, 8px);
+}
+/* Lift the cover above the rear layers so the artwork sits in front. */
+.series-stack .book-cover {
+  position: relative;
+  z-index: 1;
 }
 
 .series-count-badge {

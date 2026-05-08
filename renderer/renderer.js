@@ -146,7 +146,11 @@ function buildBookCard(b) {
 
   const select = () => {
     selectedBookId = b.id;
-    document.querySelectorAll('.book-card').forEach(c => {
+    // Restrict to real book cards: series stack / collapse cards share the
+    // .book-card class for grid layout but don't represent a pressed/
+    // toggled book and shouldn't get a misleading aria-pressed attribute.
+    // Filtering on `[data-id]` keeps the selection state on book cards only.
+    document.querySelectorAll('.book-card[data-id]').forEach(c => {
       const isSelected = c.dataset.id === b.id;
       c.classList.toggle('selected', isSelected);
       c.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
@@ -208,8 +212,10 @@ function buildSeriesStackCard(seriesName, booksInSeries) {
   card.setAttribute('aria-label', `Series: ${seriesName}, ${sorted.length} books`);
   card.setAttribute('aria-expanded', 'false');
 
-  // Re-use the cover treatment from buildBookCard but without the per-book
-  // progress badge — a stack doesn't have a single reading progress.
+  // Re-use the cover treatment from buildBookCard. Progress for the
+  // top book is shown — the cover represents that specific book, not the
+  // stack as a whole, and hiding the badge would misleadingly suggest no
+  // book in the series has been opened.
   const cover = document.createElement('div');
   cover.className = 'book-cover' + (first.coverUrl ? '' : ' placeholder');
   if (first.coverUrl) {
@@ -223,6 +229,23 @@ function buildSeriesStackCard(seriesName, booksInSeries) {
     cover.appendChild(img);
   } else {
     cover.textContent = first.title;
+  }
+  const pct = readReaderProgress(first.id);
+  if (pct !== null) {
+    const done = pct >= 100;
+    if (done) cover.classList.add('finished');
+    const bar = document.createElement('div');
+    bar.className = 'cover-progress';
+    bar.setAttribute('aria-hidden', 'true');
+    const fill = document.createElement('div');
+    fill.className = 'cover-progress-fill' + (done ? ' done' : '');
+    fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+    bar.appendChild(fill);
+    cover.appendChild(bar);
+    const label = document.createElement('div');
+    label.className = 'cover-progress-label' + (done ? ' done' : '');
+    label.textContent = done ? '✓ Done' : `${pct}%`;
+    cover.appendChild(label);
   }
   // Count badge sits over the top-right of the cover so the stack looks
   // visually distinct from a regular book card at a glance.
@@ -366,6 +389,14 @@ function renderBooks(books, opts = {}) {
       });
       for (const sb of sorted) shelfEl.appendChild(buildBookCard(sb));
     } else {
+      // If the selected book is a member of a closed series, the user can't
+      // see the selection any more — collapsing would leave a hidden
+      // selectedBookId behind that the Delete key would still act on.
+      // Clear it now so destructive actions can't fire on an invisible
+      // target. The user can re-select after expanding.
+      if (selectedBookId && group.some(sb => sb.id === selectedBookId)) {
+        selectedBookId = null;
+      }
       shelfEl.appendChild(buildSeriesStackCard(b.series, group));
     }
   }
