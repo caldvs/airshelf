@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PAIR_PATH_RE,
   parsePairPath,
   buildPairCookie,
   handlePairRequest,
