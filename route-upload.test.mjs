@@ -3,7 +3,7 @@ import {
   MAX_UPLOAD_BYTES,
   MAX_FILENAME_LEN,
   validateUploadRequest,
-} from './route-upload.js';
+} from './out/server/routes/upload.js';
 
 const SUPPORTED = ['.epub', '.azw3', '.mobi', '.pdf', '.txt'];
 

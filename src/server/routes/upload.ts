@@ -15,19 +15,32 @@
 // 1 GiB cap matches the on-the-wire limit enforced mid-stream in main.js;
 // keeping the constant here so the two checks can't drift.
 
-const path = require('path');
+import { extname } from 'path';
 
-const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GiB
-const MAX_FILENAME_LEN = 255;
+export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GiB
+export const MAX_FILENAME_LEN = 255;
 
-function validateUploadRequest({
+interface ValidateUploadArgs {
+  method: string | undefined;
+  remoteAddress: string | undefined;
+  headers: Record<string, string | string[] | undefined>;
+  supportedExtensions: readonly string[];
+  isSafeBasename: (name: unknown) => boolean;
+  isLoopback: (addr: string | undefined) => boolean;
+}
+
+export type UploadValidationResult =
+  | { ok: true; filename: string; ext: string; maxBytes: number }
+  | { ok: false; status: number; message: string };
+
+export function validateUploadRequest({
   method,
   remoteAddress,
   headers,
   supportedExtensions,
   isSafeBasename,
   isLoopback,
-}) {
+}: ValidateUploadArgs): UploadValidationResult {
   // Loopback gate runs FIRST and applies regardless of method, so a LAN
   // caller can't probe the route's existence by sending a non-POST and
   // observing a 405 vs. nothing. Stealth 404 matches the rest of the
@@ -42,7 +55,7 @@ function validateUploadRequest({
   if (!filename || filename.length > MAX_FILENAME_LEN || !isSafeBasename(filename)) {
     return { ok: false, status: 400, message: 'Invalid or missing X-Filename header.' };
   }
-  const ext = path.extname(filename);
+  const ext = extname(filename);
   if (!supportedExtensions.includes(ext.toLowerCase())) {
     return { ok: false, status: 415, message: 'Unsupported file format.' };
   }
@@ -50,15 +63,9 @@ function validateUploadRequest({
   // counter in main.js is the authoritative cap. We still reject up front
   // when an *honest* declaration exceeds the cap so we don't bother
   // opening a stream we'll abort within milliseconds.
-  const declaredLength = parseInt(headers['content-length'], 10);
+  const declaredLength = parseInt(String(headers['content-length'] ?? ''), 10);
   if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
     return { ok: false, status: 413, message: 'Upload too large.' };
   }
   return { ok: true, filename, ext, maxBytes: MAX_UPLOAD_BYTES };
 }
-
-module.exports = {
-  MAX_UPLOAD_BYTES,
-  MAX_FILENAME_LEN,
-  validateUploadRequest,
-};
