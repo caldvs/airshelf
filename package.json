@@ -2,7 +2,7 @@
   "name": "airshelf",
   "productName": "Airshelf",
   "version": "0.1.0",
-  "description": "Airshelf \u2014 wirelessly send ebooks from your Mac to your Kindle",
+  "description": "Airshelf — wirelessly send ebooks from your Mac to your Kindle",
   "main": "main.js",
   "bin": {
     "airshelf": "bin/airshelf.js"
@@ -10,6 +10,7 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --mac",
+    "postbuild": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
