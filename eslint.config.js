@@ -47,6 +47,22 @@ module.exports = [
     },
   },
 
+  // Browser extension (MV3 — uses ES modules + chrome.* APIs).
+  {
+    files: ['extension/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.browser, chrome: 'readonly' },
+    },
+    ...js.configs.recommended,
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+  },
+
   // Tests.
   {
     files: ['*.test.mjs'],
