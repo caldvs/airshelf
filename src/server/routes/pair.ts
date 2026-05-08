@@ -17,16 +17,20 @@
 //   • path-shape match
 //   • single-use code consumption via the supplied store
 //   • build the redirect/cookie payload
-//   • leave rate-limit + writeHead to the caller (mirrors route-auth.js)
+//   • leave rate-limit + writeHead to the caller (mirrors auth.ts)
 
-const PAIR_PATH_RE = /^\/pair\/([^/]+)\/?$/;
+export const PAIR_PATH_RE = /^\/pair\/([^/]+)\/?$/;
 
-function parsePairPath(pathname) {
+export interface ParsedPairPath {
+  code: string;
+}
+
+export function parsePairPath(pathname: string): ParsedPairPath | null {
   const m = pathname.match(PAIR_PATH_RE);
   return m ? { code: m[1] } : null;
 }
 
-function buildPairCookie(token) {
+export function buildPairCookie(token: string): string {
   // 1 year is well past the practical lifetime of the running app and
   // matches "rotate token to revoke" rather than "expire cookie
   // independently". HttpOnly because the renderer doesn't need cookie
@@ -35,7 +39,28 @@ function buildPairCookie(token) {
   return `airshelf_token=${token}; Max-Age=31536000; HttpOnly; SameSite=Lax; Path=/`;
 }
 
-function handlePairRequest({ pathname, pairStore, serverToken }) {
+// Structural type — matches the `consume` method on the PairCodeStore
+// in src/domain/pair.ts. Importing the class directly would make this
+// route module depend on the runtime store, which it doesn't need.
+interface PairCodeConsumer {
+  consume(input: unknown): boolean;
+}
+
+interface HandlePairArgs {
+  pathname: string;
+  pairStore: PairCodeConsumer;
+  serverToken: string;
+}
+
+export type PairResult =
+  | { match: true; ok: true; location: string; setCookie: string }
+  | { match: true; ok: false; status: 404 };
+
+export function handlePairRequest({
+  pathname,
+  pairStore,
+  serverToken,
+}: HandlePairArgs): PairResult | null {
   const parsed = parsePairPath(pathname);
   if (!parsed) return null;
   if (!pairStore.consume(parsed.code)) {
@@ -48,10 +73,3 @@ function handlePairRequest({ pathname, pairStore, serverToken }) {
     setCookie: buildPairCookie(serverToken),
   };
 }
-
-module.exports = {
-  PAIR_PATH_RE,
-  parsePairPath,
-  buildPairCookie,
-  handlePairRequest,
-};
