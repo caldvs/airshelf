@@ -8,11 +8,13 @@
     "airshelf": "bin/airshelf.js"
   },
   "scripts": {
-    "prestart": "tsc",
+    "compile": "rimraf lib && tsc",
+    "prestart": "npm run compile",
     "start": "electron .",
-    "prebuild": "tsc",
+    "prebuild": "npm run compile",
     "build": "electron-builder --mac",
-    "pretest": "tsc",
+    "postbuild": "npm rebuild better-sqlite3",
+    "pretest": "npm run compile",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

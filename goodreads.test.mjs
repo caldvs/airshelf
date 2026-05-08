@@ -52,13 +52,8 @@ describe('parseGoodreadsCsv', () => {
   });
 
   it('returns rows on the to-read shelf', () => {
-    const csv = [
-      HDR,
-      '"The Iliad",Homer,"Homer","","",-700,to-read',
-    ].join('\n');
-    expect(parseGoodreadsCsv(csv)).toEqual([
-      { title: 'The Iliad', author: 'Homer' },
-    ]);
+    const csv = [HDR, '"The Iliad",Homer,"Homer","","",-700,to-read'].join('\n');
+    expect(parseGoodreadsCsv(csv)).toEqual([{ title: 'The Iliad', author: 'Homer' }]);
   });
 
   it('skips rows on other shelves (read, currently-reading, ...)', () => {
@@ -74,52 +69,34 @@ describe('parseGoodreadsCsv', () => {
   });
 
   it('falls back to "Author l-f" when Author is empty', () => {
-    const csv = [
-      HDR,
-      '"Foo","","Surname, First","","",2020,to-read',
-    ].join('\n');
+    const csv = [HDR, '"Foo","","Surname, First","","",2020,to-read'].join('\n');
     expect(parseGoodreadsCsv(csv)[0].author).toBe('Surname, First');
   });
 
   it('prefers ISBN13 over ISBN when both are present', () => {
     // Goodreads exports literal `="..."` in the cell, which in CSV is
     // wrapped in outer quotes with internal " doubled to "".
-    const csv = [
-      HDR,
-      '"X",Y,"Y","=""0123456789""","=""9780123456789""",2020,to-read',
-    ].join('\n');
+    const csv = [HDR, '"X",Y,"Y","=""0123456789""","=""9780123456789""",2020,to-read'].join('\n');
     expect(parseGoodreadsCsv(csv)[0].isbn).toBe('9780123456789');
   });
 
   it('strips the Goodreads ="..." escape from ISBN columns', () => {
-    const csv = [
-      HDR,
-      '"X",Y,"Y","=""0123456789""","",2020,to-read',
-    ].join('\n');
+    const csv = [HDR, '"X",Y,"Y","=""0123456789""","",2020,to-read'].join('\n');
     expect(parseGoodreadsCsv(csv)[0].isbn).toBe('0123456789');
   });
 
   it('parses a sensible Year Published as a number', () => {
-    const csv = [
-      HDR,
-      '"X",Y,"Y","","",1949,to-read',
-    ].join('\n');
+    const csv = [HDR, '"X",Y,"Y","","",1949,to-read'].join('\n');
     expect(parseGoodreadsCsv(csv)[0].year).toBe(1949);
   });
 
   it('drops a year that is not a valid integer', () => {
-    const csv = [
-      HDR,
-      '"X",Y,"Y","","",not-a-year,to-read',
-    ].join('\n');
+    const csv = [HDR, '"X",Y,"Y","","",not-a-year,to-read'].join('\n');
     expect(parseGoodreadsCsv(csv)[0].year).toBeUndefined();
   });
 
   it('skips rows with no title', () => {
-    const csv = [
-      HDR,
-      '"",Y,"Y","","",2020,to-read',
-    ].join('\n');
+    const csv = [HDR, '"",Y,"Y","","",2020,to-read'].join('\n');
     expect(parseGoodreadsCsv(csv)).toEqual([]);
   });
 
@@ -130,16 +107,11 @@ describe('parseGoodreadsCsv', () => {
 
   it('handles CRLF line endings (the Goodreads export default)', () => {
     const csv = [HDR, '"Foo",A,"A","","",2020,to-read'].join('\r\n');
-    expect(parseGoodreadsCsv(csv)).toEqual([
-      { title: 'Foo', author: 'A', year: 2020 },
-    ]);
+    expect(parseGoodreadsCsv(csv)).toEqual([{ title: 'Foo', author: 'A', year: 2020 }]);
   });
 
   it('handles a comma inside a quoted title', () => {
-    const csv = [
-      HDR,
-      '"A, B and C","X","X","","",2020,to-read',
-    ].join('\n');
+    const csv = [HDR, '"A, B and C","X","X","","",2020,to-read'].join('\n');
     expect(parseGoodreadsCsv(csv)[0].title).toBe('A, B and C');
   });
 });

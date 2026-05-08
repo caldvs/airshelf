@@ -13,7 +13,11 @@ contextBridge.exposeInMainWorld('airshelf', {
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
   // Electron >= 32 removed File.path; use webUtils.getPathForFile
   getPathForFile: (file) => {
-    try { return webUtils.getPathForFile(file); } catch { return null; }
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return null;
+    }
   },
   onBooksChanged: (cb) => {
     ipcRenderer.on('books:changed', () => cb());
