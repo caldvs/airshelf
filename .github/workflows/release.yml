@@ -1,0 +1,46 @@
+name: Release
+
+# Triggers on a `vX.Y.Z` tag push. Builds a signed + notarized .app,
+# packages it as a dmg + zip (zip is what electron-updater consumes on
+# macOS), uploads the artefacts to a draft GitHub Release named after the
+# tag, and writes the `latest-mac.yml` manifest the auto-updater reads.
+#
+# Required repo secrets (set under Settings → Secrets and variables):
+#   APPLE_ID                       Apple ID email
+#   APPLE_APP_SPECIFIC_PASSWORD    app-specific password from appleid.apple.com
+#   APPLE_TEAM_ID                  10-char team id (e.g. ABC123DEFG)
+#   CSC_LINK                       base64-encoded p12 of the Developer ID Application cert
+#   CSC_KEY_PASSWORD               p12 password
+#
+# Without those secrets, the build still runs but skips signing and
+# notarization (the `afterSign` hook short-circuits with a warning).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build, sign, notarize, publish
+        run: npx electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}

@@ -93,9 +93,11 @@ describe('readToken / readBooks (filesystem)', () => {
 describe('CLI invocation (black box)', () => {
   it('-h prints usage and exits 0', async () => {
     const { stdout } = await exec(process.execPath, [cliPath, '-h']);
-    expect(stdout).toMatch(/airshelf — read-only CLI/);
-    expect(stdout).toMatch(/url\b/);
-    expect(stdout).toMatch(/list\b/);
+    expect(stdout).toMatch(/airshelf — CLI for the Airshelf/);
+    expect(stdout).toMatch(/\burl\b/);
+    expect(stdout).toMatch(/\blist\b/);
+    expect(stdout).toMatch(/\bsend\b/);
+    expect(stdout).toMatch(/\brotate-token\b/);
   });
 
   it('unknown command exits non-zero with stderr message', async () => {
@@ -105,5 +107,32 @@ describe('CLI invocation (black box)', () => {
       code: 2,
       stderr: expect.stringMatching(/unknown command/),
     });
+  });
+
+  it('send without arguments exits 2', async () => {
+    await expect(
+      exec(process.execPath, [cliPath, 'send']),
+    ).rejects.toMatchObject({
+      code: 2,
+      stderr: expect.stringMatching(/needs at least one file path/),
+    });
+  });
+
+  it('send exits 1 when no token file is present', async () => {
+    // Point the CLI at an empty $HOME so userDataDir() resolves to a path
+    // with no server-token file.
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'airshelf-no-token-'));
+    try {
+      await expect(
+        exec(process.execPath, [cliPath, 'send', '/tmp/anything'], {
+          env: { ...process.env, HOME: fakeHome },
+        }),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringMatching(/no server token found/),
+      });
+    } finally {
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    }
   });
 });

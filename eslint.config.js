@@ -17,7 +17,7 @@ module.exports = [
 
   // Main process + helpers (CommonJS).
   {
-    files: ['main.js', 'preload.js', 'auth.js', 'pair.js', 'safety.js', 'hash.js', 'concurrency.js', 'titles.js', 'inject-asin.js', 'bin/*.js'],
+    files: ['main.js', 'preload.js', 'auth.js', 'pair.js', 'safety.js', 'hash.js', 'concurrency.js', 'titles.js', 'inject-asin.js', 'goodreads.js', 'bin/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'commonjs',
@@ -38,6 +38,22 @@ module.exports = [
       ecmaVersion: 2022,
       sourceType: 'script',
       globals: { ...globals.browser, ePub: 'readonly', airshelf: 'readonly', airshelfReader: 'readonly' },
+    },
+    ...js.configs.recommended,
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+  },
+
+  // Browser extension (MV3 — uses ES modules + chrome.* APIs).
+  {
+    files: ['extension/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.browser, chrome: 'readonly' },
     },
     ...js.configs.recommended,
     rules: {

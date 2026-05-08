@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('airshelf', {
   addBookPaths: (paths) => ipcRenderer.invoke('books:addPaths', paths),
   deleteBook: (id) => ipcRenderer.invoke('books:delete', id),
   serverInfo: () => ipcRenderer.invoke('server:info'),
+  onServerTokenRotated: (cb) => {
+    ipcRenderer.on('server:tokenRotated', (_e, info) => cb(info));
+  },
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
   // Electron >= 32 removed File.path; use webUtils.getPathForFile
   getPathForFile: (file) => {
@@ -25,6 +28,13 @@ contextBridge.exposeInMainWorld('airshelf', {
   calibreClear: () => ipcRenderer.invoke('calibre:clear'),
   backupLibrary: () => ipcRenderer.invoke('library:backup'),
   restoreLibrary: () => ipcRenderer.invoke('library:restore'),
+  onUpdateAvailable: (cb) => {
+    ipcRenderer.on('updater:available', (_e, info) => cb(info));
+  },
+  onUpdateDownloaded: (cb) => {
+    ipcRenderer.on('updater:downloaded', (_e, info) => cb(info));
+  },
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
   pairCurrent: () => ipcRenderer.invoke('pair:current'),
   pairRotate: () => ipcRenderer.invoke('pair:rotate'),
   importFromCalibre: () => ipcRenderer.invoke('library:importCalibre'),

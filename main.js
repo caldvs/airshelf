@@ -267,11 +267,14 @@ async function getOrBuildReaderEpub(book) {
 
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
 const { buildManifest, validateBackup } = require('./backup.js');
-const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const { tokensMatch, loadOrCreateServerToken, rotateServerToken, FailedAuthLimiter } = require('./auth.js');
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
+const { humanSize, escapeHtml, getLocalIP } = require('./utils.js');
 const { handleCoverRequest } = require('./route-cover.js');
 const { handleEpubRequest } = require('./route-epub.js');
+const { renderShelfHtml } = require('./route-index.js');
+const { prepareDownloadResponse } = require('./route-download.js');
 
 // Scan the Cookie header for any host-only `airshelf_token` value matching the
 // current server token. Browsers can send duplicate cookie names (for example
@@ -294,6 +297,7 @@ let server = null;
 let booksDir = null;
 let metaFile = null;
 let serverToken = null;
+let userDataPath = null;
 const pairStore = new PairCodeStore();
 let settingsFile = null;
 let bonjour = null;
@@ -478,100 +482,23 @@ function extractEpubTitle(epubPath) {
 // titlesMatch / cleanTitle / guessAuthorFromFilename moved to ./titles.js
 // — single canonical impl, requires above.
 
-// Query Open Library search for a book. Returns the first matching doc or null.
-// Tries multiple query variants so that messy filename-derived titles still match.
-// Biases toward English editions so we don't e.g. pick a Spanish cover for an
-// English book.
-async function searchOpenLibrary(title, author) {
-  if (!title) return null;
-  const variants = new Set();
-  const cleaned = cleanTitle(title);
-  if (cleaned) variants.add(cleaned);
-  // Try the portion before a colon subtitle
-  if (cleaned.includes(':')) variants.add(cleaned.split(':')[0].trim());
-  // Fall back to the raw title
-  variants.add(title);
+// Open Library client moved to ./openlibrary.js — same network behaviour,
+// now unit-tested with stubbed `fetch`. The functions remain in this scope
+// under the same names so addBook / migrateExistingBooks call sites don't
+// have to change. fetchCoverFromOpenLibrary is exported by openlibrary.js
+// but main.js doesn't currently call it (the search + download halves are
+// invoked separately so the doc is reused for description fetching too).
+const {
+  searchOpenLibrary,
+  downloadOpenLibraryCover,
+  fetchOpenLibraryDescription,
+} = require('./openlibrary.js');
 
-  const isEnglish = (doc) => Array.isArray(doc.language) && doc.language.includes('eng');
-  // Score a candidate: English + has cover > English only > has cover > anything
-  const score = (doc) => (isEnglish(doc) ? 2 : 0) + (doc.cover_i ? 1 : 0);
-
-  let best = null;
-  let bestScore = -1;
-  for (const variant of variants) {
-    if (!variant || variant.length < 2) continue;
-    try {
-      const q = new URLSearchParams({ title: variant });
-      if (author) q.set('author', author);
-      q.set('limit', '5');
-      const res = await fetch(`https://openlibrary.org/search.json?${q.toString()}`, {
-        headers: { 'User-Agent': 'Airshelf/0.1 (ebook helper)' },
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const docs = Array.isArray(data.docs) ? data.docs : [];
-      for (const doc of docs) {
-        const s = score(doc);
-        if (s > bestScore) {
-          best = doc;
-          bestScore = s;
-          if (bestScore === 3) return best; // English + cover, can't beat it
-        }
-      }
-    } catch {}
-  }
-  return best;
-}
-
-// Download a cover image for an Open Library doc. Returns true on success.
-async function downloadOpenLibraryCover(doc, outPath) {
-  if (!doc) return false;
-  const attempts = [];
-  if (doc.cover_i) attempts.push(`https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`);
-  if (doc.isbn && doc.isbn[0]) attempts.push(`https://covers.openlibrary.org/b/isbn/${doc.isbn[0]}-L.jpg`);
-  if (doc.edition_key && doc.edition_key[0]) attempts.push(`https://covers.openlibrary.org/b/olid/${doc.edition_key[0]}-L.jpg`);
-  for (const url of attempts) {
-    try {
-      const res = await fetch(url, {
-        headers: { 'User-Agent': 'Airshelf/0.1 (ebook helper)' },
-      });
-      if (!res.ok) continue;
-      const buf = Buffer.from(await res.arrayBuffer());
-      // Open Library returns a tiny placeholder when no cover exists
-      if (buf.length < 1000) continue;
-      fs.writeFileSync(outPath, buf);
-      return true;
-    } catch {}
-  }
-  return false;
-}
-
-// Legacy helper: fetch + rescue cover in one shot
-async function fetchCoverFromOpenLibrary(title, author, outPath) {
-  const doc = await searchOpenLibrary(title, author);
-  return doc ? await downloadOpenLibraryCover(doc, outPath) : false;
-}
-
-// Fetch a description for a book from Open Library's works API.
-// Falls back gracefully to null if the API is unreachable or has no description.
-async function fetchOpenLibraryDescription(doc) {
-  try {
-    const key = doc.key; // e.g. "/works/OL12345W"
-    if (!key) return null;
-    const res = await fetch(`https://openlibrary.org${key}.json`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.description) return null;
-    // description can be a string or { type: '/type/text', value: '...' }
-    return typeof data.description === 'string'
-      ? data.description
-      : (data.description.value || null);
-  } catch {
-    return null;
-  }
-}
-
-async function addBook(srcPath) {
+// `displayName` lets the /upload route preserve the user's filename for
+// title/author fallback even though the actual srcPath is a randomised
+// staging file. Defaults to the srcPath's basename so existing callers
+// (drag-drop, IPC, calibre-import) keep their current behaviour.
+async function addBook(srcPath, displayName = path.basename(srcPath)) {
   const ext = path.extname(srcPath).toLowerCase();
   if (!SUPPORTED_EXTS.includes(ext)) {
     return { error: `Unsupported format: ${ext}` };
@@ -619,8 +546,13 @@ async function addBook(srcPath) {
     coverFile = `${id}.cover`;
     await resizeCoverInPlace(coverCandidate);
   }
-  // Fall back to the filename and clean it up.
-  const rawBase = path.basename(srcPath, ext);
+  // Fall back to the filename and clean it up. We strip from displayName
+  // (not srcPath) so the /upload route's randomised staging filename
+  // doesn't leak into the title. Use path.extname(displayName) for the
+  // strip so a mixed-case extension (e.g. "BOOK.EPUB") is removed even
+  // though the lowercased `ext` we computed earlier doesn't match —
+  // path.basename's second argument is case-sensitive.
+  const rawBase = path.basename(displayName, path.extname(displayName));
   if (!title) title = rawBase;
   // Extract series before cleanTitle strips the parenthetical — extractSeries
   // returns the cleaned title plus any `(Series #N)` info found in the raw form.
@@ -733,7 +665,7 @@ async function addBook(srcPath) {
     year,
     series,
     seriesIndex,
-    originalName: path.basename(srcPath),
+    originalName: displayName,
     originalFile: originalFileName,
     file: kindleFile,          // what we serve to the Kindle
     cover: coverFile,
@@ -1024,39 +956,17 @@ async function migrateExistingBooks() {
 
 // ---------- Networking ----------
 
-function getLocalIP() {
-  const ifaces = os.networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const iface of ifaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address;
-      }
-    }
-  }
-  return '127.0.0.1';
+
+// Loopback gate for write-side endpoints (#37 /upload). The server listens
+// on 0.0.0.0 so the Kindle can read; we don't want to expose mutating
+// routes on the LAN under just the ~20-bit token.
+function isLoopback(addr) {
+  if (typeof addr !== 'string') return false;
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
-function humanSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
-function formatDate(ts) {
-  const d = new Date(ts);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) {
-    return `today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-  }
-  return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
-}
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
-}
 
 // Renders a static mock of the Electron bookshelf UI — used only for the
 // README screenshot. It is served from /screenshot in the same HTTP server.
@@ -1130,148 +1040,6 @@ function renderScreenshotHtml() {
 </html>`;
 }
 
-function renderIndexHtml() {
-  const books = listBooks();
-  const total = books.length;
-  const rows = books.map((b, i) => {
-    const authorLine = b.author ? `<div class="author">${escapeHtml(b.author)}${b.year ? ` &middot; ${b.year}` : ''}</div>` : (b.year ? `<div class="author">${b.year}</div>` : '');
-    return `
-    <table class="book" cellpadding="0" cellspacing="0" border="0" width="100%">
-      <tr>
-        <td colspan="3" class="index-cell">${i + 1} of ${total}</td>
-      </tr>
-      <tr>
-        <td class="cover-cell" valign="middle" width="190">
-          ${b.cover
-            ? `<div class="cover-frame" style="background-image:url('/${serverToken}/cover/${b.id}')"></div>`
-            : `<div class="cover-frame cover-fallback">${escapeHtml(b.title.slice(0, 40))}</div>`}
-        </td>
-        <td class="info-cell" valign="middle">
-          <div class="title">${escapeHtml(b.title)}</div>
-          ${authorLine}
-          <div class="meta">AZW3 &middot; ${humanSize(b.size)}</div>
-        </td>
-        <td class="btn-cell" valign="middle" align="right">
-          <a class="dl-btn" href="/${serverToken}/download/${b.id}">Download</a>
-        </td>
-      </tr>
-      <tr><td colspan="3" class="spacer"></td></tr>
-    </table>
-  `;
-  }).join('');
-  const count = books.length;
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>Airshelf</title>
-<style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: #fff;
-    color: #000;
-    -webkit-text-size-adjust: none;
-  }
-  body {
-    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-    font-size: 20px;
-    line-height: 1.35;
-    padding: 24px 20px 40px 20px;
-  }
-
-  /* Header */
-  h1 { font-size: 42px; margin: 0 0 6px 0; font-weight: bold; }
-  .sub { font-size: 20px; margin: 0 0 8px 0; }
-  .count { font-size: 18px; margin: 0 0 16px 0; color: #333; }
-  .head-rule { border: 0; border-top: 2px solid #000; margin: 0 0 12px 0; height: 0; }
-
-  /* Book rows */
-  table.book { margin: 0; width: 100%; }
-  td.index-cell {
-    padding: 22px 0 6px 0;
-    font-size: 18px;
-    font-weight: bold;
-    color: #666;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-  }
-  td.cover-cell { width: 190px; padding: 8px 24px 28px 0; vertical-align: middle; }
-  td.info-cell  { padding: 8px 16px 28px 0; vertical-align: middle; }
-  td.btn-cell   { padding: 8px 0 28px 0; vertical-align: middle; text-align: right; white-space: nowrap; }
-  td.spacer {
-    border-top: 1px solid #ccc;
-    height: 0;
-    line-height: 0;
-    font-size: 0;
-    padding: 0;
-  }
-
-  /* Cover: fixed 180x252 frame (20% larger), image fills entire area */
-  .cover-frame {
-    display: block;
-    width: 180px;
-    height: 252px;
-    background-color: #fff;
-    background-position: center center;
-    background-repeat: no-repeat;
-    background-size: cover;
-    overflow: hidden;
-  }
-  .cover-fallback {
-    line-height: 1.3;
-    padding: 14px;
-    box-sizing: border-box;
-    text-align: center;
-    font-weight: bold;
-    font-size: 16px;
-    background-color: #f0f0f0;
-    background-image: none;
-  }
-
-  /* Title, author, meta */
-  .title  { font-size: 30px; font-weight: bold; line-height: 1.2; margin: 0 0 8px 0; color: #000; }
-  .author { font-size: 22px; line-height: 1.3; margin: 0 0 10px 0; color: #333; font-style: italic; }
-  .meta   { font-size: 20px; color: #333; margin: 0; }
-
-  /* Download button — 2x size, right-aligned next to info */
-  a.dl-btn {
-    display: inline-block;
-    padding: 28px 44px;
-    border: 2px solid #000;
-    background: #000;
-    color: #fff;
-    text-decoration: none;
-    font-weight: bold;
-    font-size: 24px;
-    text-align: center;
-    white-space: nowrap;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 20px;
-    font-size: 22px;
-    border-top: 2px solid #000;
-    border-bottom: 2px solid #000;
-  }
-  .footer { margin-top: 28px; font-size: 16px; color: #555; text-align: center; }
-</style>
-</head>
-<body>
-  <h1>Airshelf</h1>
-  <div class="sub">Tap a book to download.</div>
-  ${count ? `<div class="count">${count} ${count === 1 ? 'book' : 'books'} available</div>` : ''}
-  <hr class="head-rule">
-  ${count ? rows : `<div class="empty">No books yet.<br>Add some in the Airshelf app on your Mac.</div>`}
-  <div class="footer">Airshelf</div>
-</body>
-</html>`;
-}
 
 function startServer() {
   if (server) return;
@@ -1355,6 +1123,144 @@ function startServer() {
         res.writeHead(auth.status); res.end('Not found'); return;
       }
       const subPath = auth.subPath;
+      // CLI / future-extension upload (#37). Same token as the rest of the
+      // server, but only honoured for POST and only from loopback — the
+      // server itself listens on 0.0.0.0 for the Kindle's read traffic, but
+      // a write surface protected only by the ~20-bit token is too thin a
+      // perimeter for LAN exposure. Body is the raw bytes of one ebook;
+      // the original filename comes in via X-Filename so the saved file
+      // can pick up the right extension and (via cleanTitle) a sensible
+      // fallback title. Cap is generous (1 GB) — large PDFs are common,
+      // but we won't accept multi-GB blobs by accident.
+      // Rotate the server token (#37 `airshelf rotate-token`). Same
+      // loopback-only gate as /upload — the running app's serverToken
+      // updates atomically so existing /<old-token>/ requests start
+      // returning 404 immediately. Connected Kindles need to re-pair;
+      // the airshelf_token cookie set by the pair flow holds the *old*
+      // token, so the bare-URL fallback fails until the device pairs
+      // again with a fresh code.
+      if (subPath === '/rotate-token' && req.method === 'POST') {
+        if (!isLoopback(req.socket.remoteAddress)) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not found');
+          return;
+        }
+        let next;
+        try {
+          next = rotateServerToken(userDataPath);
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Rotate failed: ${e.message}`);
+          return;
+        }
+        serverToken = next;
+        // `ip` in the enclosing scope is the *remote* client IP for rate
+        // limiting; rename here so future readers don't conflate the two.
+        const localIp = getLocalIP();
+        const newUrl = `http://${localIp}:${PORT}/${next}/`;
+        if (mainWindow) mainWindow.webContents.send('server:tokenRotated', { token: next, url: newUrl });
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        res.end(JSON.stringify({ ok: true, token: next, url: newUrl }));
+        return;
+      }
+
+      if (subPath === '/upload' && req.method === 'POST') {
+        if (!isLoopback(req.socket.remoteAddress)) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not found');
+          return;
+        }
+        const filename = (req.headers['x-filename'] || '').toString();
+        if (!filename || filename.length > 255 || !isSafeBasename(filename)) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Invalid or missing X-Filename header.');
+          return;
+        }
+        // Reject by extension before streaming the body. addBook checks the
+        // same allowlist, but only after we'd have written up to MAX_UPLOAD_BYTES
+        // to disk — wasteful for an obviously unsupported file.
+        if (!SUPPORTED_EXTS.includes(path.extname(filename).toLowerCase())) {
+          res.writeHead(415, { 'Content-Type': 'text/plain' });
+          res.end('Unsupported file format.');
+          return;
+        }
+        const declaredLength = parseInt(req.headers['content-length'], 10);
+        const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+          res.writeHead(413, { 'Content-Type': 'text/plain' });
+          res.end('Upload too large.');
+          return;
+        }
+        // Tmp filename keeps the *extension* so addBook's format probe and
+        // cleanTitle work, but drops the user-supplied basename — which
+        // could leak metadata into a world-readable temp dir, and (even
+        // after isSafeBasename) be long enough to ENAMETOOLONG on some
+        // filesystems. The unique random hex is the new stem; mode 0o600
+        // restricts read access to this user.
+        const ext = path.extname(filename);
+        const tmpPath = path.join(
+          os.tmpdir(),
+          `airshelf-upload-${crypto.randomBytes(8).toString('hex')}${ext}`,
+        );
+        const out = fs.createWriteStream(tmpPath, { mode: 0o600 });
+        let received = 0;
+        let aborted = false;
+        req.on('data', (chunk) => {
+          if (aborted) return;
+          received += chunk.length;
+          if (received > MAX_UPLOAD_BYTES) {
+            aborted = true;
+            out.destroy();
+            try { req.destroy(); } catch {}
+            try { fs.unlinkSync(tmpPath); } catch {}
+            res.writeHead(413, { 'Content-Type': 'text/plain' });
+            res.end('Upload exceeded size limit mid-stream.');
+          }
+        });
+        try {
+          await new Promise((resolve, reject) => {
+            req.pipe(out);
+            out.on('finish', resolve);
+            out.on('error', reject);
+            req.on('error', reject);
+            // 'aborted' fires when the client closes mid-upload before
+            // 'end'. Without this the promise never settles and the
+            // handler hangs forever, leaving a partial tmp file behind.
+            req.on('aborted', () => reject(new Error('client aborted upload')));
+          });
+        } catch (e) {
+          try { fs.unlinkSync(tmpPath); } catch {}
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            // Match the leak-suppression posture used elsewhere in the
+            // request handler (see the catch blocks at the bottom).
+            res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Upload write failed: ${e.message}`);
+          }
+          return;
+        }
+        if (aborted) return; // 413 already sent
+        let result;
+        try {
+          // Pass the validated X-Filename so the user's original name flows
+          // into title-fallback / book.originalName, even though the on-disk
+          // path is the randomised staging file.
+          result = await addBook(tmpPath, filename);
+        } catch (e) {
+          result = { error: e.message };
+        } finally {
+          try { fs.unlinkSync(tmpPath); } catch {}
+        }
+        if (result.book && mainWindow) mainWindow.webContents.send('books:changed');
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        res.end(JSON.stringify(result));
+        return;
+      }
       if (subPath === '/screenshot') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -1370,7 +1276,7 @@ function startServer() {
           'Pragma': 'no-cache',
           'Expires': '0',
         });
-        res.end(renderIndexHtml());
+        res.end(renderShelfHtml({ books: listBooks(), serverToken }));
         return;
       }
       const coverDecision = handleCoverRequest({
@@ -1390,33 +1296,19 @@ function startServer() {
         }
         return;
       }
-      // Match Bookify's URL pattern: /download/<id> with no extension.
-      // PW3's experimental browser pre-checks URL extensions against a
-      // whitelist; by omitting the extension entirely, we bypass that check
-      // and let Content-Disposition set the filename instead.
-      const dlMatch = subPath.match(/^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/i);
-      if (dlMatch) {
-        const id = dlMatch[1];
-        const book = listBooks().find(b => b.id === id);
-        if (!book) { res.writeHead(404); res.end('Not found'); return; }
-        const filePath = path.join(booksDir, book.file);
-        const stat = fs.statSync(filePath);
-        const baseName = (book.title || 'book').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 80);
-        const downloadName = `${baseName}.${book.ext}`;
-        // Matches Bookify's response shape exactly: octet-stream +
-        // attachment disposition with the real .azw3 filename. Swapping
-        // Content-Type to application/vnd.amazon.ebook is what triggers
-        // Kindle's "experimental browser cannot download this kind of
-        // file" error, even though the filename extension is identical.
-        res.writeHead(200, {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': stat.size,
-          'Content-Disposition': `attachment; filename="${downloadName}"`,
-        });
-        const dlStream = fs.createReadStream(filePath);
+      const dlDecision = prepareDownloadResponse({ subPath, books: listBooks(), booksDir });
+      if (dlDecision) {
+        if (dlDecision.status !== 200) {
+          res.writeHead(dlDecision.status);
+          res.end(dlDecision.body);
+          return;
+        }
+        const stat = fs.statSync(dlDecision.filePath);
+        res.writeHead(200, { ...dlDecision.headers, 'Content-Length': stat.size });
         // Kindle aborts mid-download more than you'd expect (sleep, network
-        // flap). Without this, the read stream keeps pumping until EOF —
-        // wasting CPU and holding an FD until GC.
+        // flap). pipeStreamToResponse destroys the read stream on req close
+        // so we don't keep pumping bytes to a dead socket.
+        const dlStream = fs.createReadStream(dlDecision.filePath);
         pipeStreamToResponse(dlStream, req, res);
         return;
       }
@@ -1523,6 +1415,7 @@ app.whenReady().then(() => {
     try { app.dock.setIcon(path.join(__dirname, 'build', 'icon.icns')); } catch {}
   }
   const userData = app.getPath('userData');
+  userDataPath = userData;
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
@@ -1535,11 +1428,68 @@ app.whenReady().then(() => {
   startServer();
   createWindow();
   migrateExistingBooks().catch(e => console.error('migration error', e));
+  scheduleAutoUpdates();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// Auto-update via electron-updater + GitHub Releases. The packaged app
+// checks once on launch and every 24h after, downloads in the background,
+// and prompts the user to relaunch when a build is ready. No-op when run
+// via `npm start` because electron-updater throws on dev because there's
+// no signed code to compare against.
+function scheduleAutoUpdates() {
+  if (!app.isPackaged) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (e) {
+    console.warn('[updater] electron-updater missing, skipping:', e.message);
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Push update events to the renderer so it can render a non-blocking
+  // toast (the issue's "non-blocking Update available toast in-app").
+  // If no window is up yet, the event is dropped — the next periodic
+  // check will resurface the same update.
+  function notifyRenderer(channel, payload) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.webContents.send(channel, payload); } catch {}
+    }
+  }
+
+  autoUpdater.on('error', (e) => console.warn('[updater] error:', e?.message || e));
+  autoUpdater.on('update-available', (info) => {
+    console.log('[updater] update available:', info?.version);
+    notifyRenderer('updater:available', { version: info?.version });
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[updater] update downloaded:', info?.version);
+    notifyRenderer('updater:downloaded', { version: info?.version });
+  });
+
+  // Renderer-initiated relaunch — fired by the toast's "Restart" button.
+  // quitAndInstall false-false skips the prompt + reopens the app.
+  ipcMain.handle('updater:install', () => {
+    try { autoUpdater.quitAndInstall(false, true); } catch (e) {
+      console.warn('[updater] quitAndInstall failed:', e?.message || e);
+    }
+  });
+
+  autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+    console.warn('[updater] initial check failed:', e?.message || e);
+  });
+  // Re-check daily for long-lived sessions.
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((e) => {
+      console.warn('[updater] periodic check failed:', e?.message || e);
+    });
+  }, 24 * 60 * 60 * 1000);
+}
 
 app.on('window-all-closed', () => {
   stopMdns();
