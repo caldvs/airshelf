@@ -62,7 +62,6 @@
       "main.js",
       "preload.js",
       "out/**/*",
-      "route-epub.js",
       "renderer/**/*",
       "build/icon.icns",
       "build/icon_256.png",

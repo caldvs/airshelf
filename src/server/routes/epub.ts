@@ -2,20 +2,46 @@
 // in main.js can stay focused on (req, res) glue and this module stays
 // integration-testable without booting Electron or http.Server.
 
-const fs = require('fs');
-const { parseRangeHeader } = require('./out/server/routes/range.js');
+import { existsSync, statSync } from 'fs';
+import { parseRangeHeader } from './range.js';
 
-const EPUB_PATH_RE = /^\/epub\/([a-f0-9]+)$/;
+export const EPUB_PATH_RE = /^\/epub\/([a-f0-9]+)$/;
 
 // The reader iframe loads from file:// (Origin: null). 'null' matches that
 // without opening to arbitrary websites the way '*' did. Applied even on
 // error responses so the renderer's catch path can read the body.
 const CORS_ALLOW = 'null';
 
+interface BookEntry {
+  id: string;
+}
+
+interface HandleEpubArgs {
+  subPath: string;
+  books: BookEntry[];
+  getReaderEpubPath: (book: BookEntry) => Promise<string | null | undefined>;
+  rangeHeader?: string | null | undefined;
+}
+
+interface BaseHeaders {
+  'Content-Type'?: string;
+  'Accept-Ranges'?: string;
+  'Cache-Control'?: string;
+  'Access-Control-Allow-Origin': string;
+  'Content-Length'?: number;
+  'Content-Range'?: string;
+}
+
+export type EpubResponse =
+  | { status: 404 | 500; body: string; headers: { 'Access-Control-Allow-Origin': string } }
+  | { status: 416; headers: BaseHeaders }
+  | { status: 206; headers: BaseHeaders; stream: { path: string; start: number; end: number } }
+  | { status: 200; headers: BaseHeaders; stream: { path: string } };
+
 // Returns one of:
 //   null                                                   — subPath does not match
 //   { status: 404, body, headers }                         — book id not in books,
-//                                                          or built/expected file missing
+//                                                            or built/expected file missing
 //   { status: 500, body, headers }                         — getReaderEpubPath threw
 //   { status: 416, headers }                               — range outside file size
 //   { status: 206, headers, stream: { path, start, end } } — range hit
@@ -23,14 +49,12 @@ const CORS_ALLOW = 'null';
 //
 // The caller is responsible for actually creating the read stream and
 // piping it. Keeping I/O at the boundary keeps this pure and testable.
-//
-// Inputs:
-//   subPath           — e.g. "/epub/abc123"
-//   books             — list of book metadata objects (from listBooks())
-//   getReaderEpubPath — async (book) => absolute path to the reader-ready
-//                       .epub on disk. Throws on build failure.
-//   rangeHeader       — value of the request `Range` header (or undefined)
-async function handleEpubRequest({ subPath, books, getReaderEpubPath, rangeHeader }) {
+export async function handleEpubRequest({
+  subPath,
+  books,
+  getReaderEpubPath,
+  rangeHeader,
+}: HandleEpubArgs): Promise<EpubResponse | null> {
   const m = subPath.match(EPUB_PATH_RE);
   if (!m) return null;
   const id = m[1];
@@ -43,17 +67,18 @@ async function handleEpubRequest({ subPath, books, getReaderEpubPath, rangeHeade
     };
   }
 
-  let epubPath;
+  let epubPath: string | null | undefined;
   try {
     epubPath = await getReaderEpubPath(book);
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     return {
       status: 500,
-      body: `Build failed: ${e.message}`,
+      body: `Build failed: ${message}`,
       headers: { 'Access-Control-Allow-Origin': CORS_ALLOW },
     };
   }
-  if (!epubPath || !fs.existsSync(epubPath)) {
+  if (!epubPath || !existsSync(epubPath)) {
     return {
       status: 404,
       body: 'Missing',
@@ -61,8 +86,8 @@ async function handleEpubRequest({ subPath, books, getReaderEpubPath, rangeHeade
     };
   }
 
-  const stat = fs.statSync(epubPath);
-  const baseHeaders = {
+  const stat = statSync(epubPath);
+  const baseHeaders: BaseHeaders = {
     'Content-Type': 'application/epub+zip',
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'private, max-age=3600',
@@ -85,5 +110,3 @@ async function handleEpubRequest({ subPath, books, getReaderEpubPath, rangeHeade
     stream: { path: epubPath },
   };
 }
-
-module.exports = { EPUB_PATH_RE, handleEpubRequest };
