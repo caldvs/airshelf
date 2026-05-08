@@ -350,7 +350,7 @@ const { validateUploadRequest, MAX_UPLOAD_BYTES } = require('./out/server/routes
 const { humanSize, escapeHtml, getLocalIP } = require('./out/lib/utils.js');
 const { handleCoverRequest } = require('./out/server/routes/cover.js');
 const { handleEpubRequest } = require('./route-epub.js');
-const { renderShelfHtml } = require('./route-index.js');
+const { renderShelfHtml } = require('./out/server/routes/index.js');
 const { prepareDownloadResponse } = require('./out/server/routes/download.js');
 
 // Scan the Cookie header for any host-only `airshelf_token` value matching the
