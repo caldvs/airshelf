@@ -1229,6 +1229,12 @@ function startServer() {
 
   server = http.createServer(async (req, res) => {
     const ip = req.socket.remoteAddress || 'unknown';
+    // Short-circuit blocked IPs BEFORE parsing the URL so a malformed
+    // req.url can't tip a blocked client into the catch path's 500
+    // response — that would break the stealth-404 behavior.
+    if (authLimiter.isBlocked(ip)) {
+      res.writeHead(404); res.end('Not found'); return;
+    }
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
       // Token + per-IP rate-limit gate. See route-auth.js for the rules; a
