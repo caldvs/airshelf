@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parsePairPath, buildPairCookie, handlePairRequest } from './route-pair.js';
+import {
+  parsePairPath,
+  buildPairCookie,
+  handlePairRequest,
+} from './out/server/routes/pair.js';
 
 describe('PAIR_PATH_RE / parsePairPath', () => {
   it('matches /pair/<code>', () => {
