@@ -99,6 +99,41 @@ describe('createSettingsStore', () => {
     expect(store.load()).toEqual({ a: 1 });
   });
 
+  it('strips __proto__ / constructor / prototype keys from a tampered file', () => {
+    // Hand-write a JSON document with __proto__ as a regular key. JSON.parse
+    // would normally surface this as an own property; without sanitisation
+    // the spread in save() could reach Object.prototype.
+    fs.writeFileSync(
+      file,
+      '{"calibreBinDir": "/safe", "__proto__": {"polluted": true}, "constructor": "x"}',
+    );
+    const store = createSettingsStore(file);
+    const loaded = store.load();
+    expect(loaded.calibreBinDir).toBe('/safe');
+    expect(loaded.__proto__).toBeUndefined();
+    expect(loaded.constructor).toBeUndefined();
+    // Object.prototype must not be polluted.
+    expect({}.polluted).toBeUndefined();
+  });
+
+  it('strips forbidden keys from a save() patch too', () => {
+    const store = createSettingsStore(file);
+    // Build the patch dynamically so the literal `__proto__` key in the
+    // object literal doesn't get interpreted as a prototype-set by the
+    // parser — we want it to land as an own property to exercise the
+    // sanitiser.
+    const patch = { a: 1 };
+    Object.defineProperty(patch, '__proto__', {
+      value: { polluted: true },
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    const result = store.save(patch);
+    expect(result.a).toBe(1);
+    expect({}.polluted).toBeUndefined();
+  });
+
   it('two stores against the same path are independent caches', () => {
     const a = createSettingsStore(file);
     const b = createSettingsStore(file);

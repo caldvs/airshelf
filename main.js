@@ -304,22 +304,31 @@ const MDNS_HOST = 'airshelf';
 
 // ---------- Settings (small key/value store, separate from books.json) ----------
 //
-// Implementation moved to ./settings.js — this is the file-bound store
-// instance, initialised in app.whenReady once we know userData. loadSettings
-// and saveSettings are kept as thin shims so existing call sites don't have
-// to change. Both tolerate being called before init (returns {} / no-ops to
-// disk) so getCalibreUserBinDir at module-eval time doesn't crash.
+// Implementation moved to ./settings.js. Start with an in-memory store so
+// any caller that runs before app.whenReady (defensive — none today) gets
+// real load/save semantics rather than a no-op shim. Once userData is
+// known, swap to a file-backed store and migrate any pre-init writes
+// across so nothing is lost.
 
 const { createSettingsStore } = require('./settings.js');
-let settingsStore = null;
+let settingsStore = createSettingsStore(null);
 
 function loadSettings() {
-  return settingsStore ? settingsStore.load() : {};
+  return settingsStore.load();
 }
 
 function saveSettings(patch) {
-  if (!settingsStore) return { ...patch };
   return settingsStore.save(patch);
+}
+
+function initSettingsStore(filePath) {
+  const fileStore = createSettingsStore(filePath);
+  // Carry over any pre-init writes. The file-backed store's load() picks
+  // up whatever is already on disk; merging the in-memory snapshot on top
+  // means in-memory writes win (they're more recent).
+  const pending = settingsStore.load();
+  if (Object.keys(pending).length > 0) fileStore.save(pending);
+  settingsStore = fileStore;
 }
 
 // ---------- Book storage ----------
@@ -1594,7 +1603,7 @@ app.whenReady().then(() => {
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
-  settingsStore = createSettingsStore(path.join(userData, 'settings.json'));
+  initSettingsStore(path.join(userData, 'settings.json'));
   serverToken = loadOrCreateServerToken(userData);
 
   // startServer() also wires startMdns() into the `listening` callback so
