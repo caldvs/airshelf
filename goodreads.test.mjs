@@ -14,8 +14,12 @@ describe('parseCsvLine', () => {
     expect(parseCsvLine('"He said ""hi""",ok')).toEqual(['He said "hi"', 'ok']);
   });
 
-  it('returns empty strings for missing trailing fields', () => {
+  it('returns empty strings for missing middle fields', () => {
     expect(parseCsvLine('a,,c')).toEqual(['a', '', 'c']);
+  });
+
+  it('returns an empty trailing field when the line ends with a comma', () => {
+    expect(parseCsvLine('a,b,')).toEqual(['a', 'b', '']);
   });
 
   it('handles empty input', () => {

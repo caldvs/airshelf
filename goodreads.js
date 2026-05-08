@@ -5,9 +5,11 @@
 // shape is documented and stable enough to parse without a full RFC 4180
 // parser — the fields we care about are simple quoted strings.
 //
-// This module is the pure "CSV → list of {title, author}" half. The
-// renderer / IPC half (file picker, "Find ebook" buttons, integration
-// with Open Library search) lives elsewhere and follows in a later slice.
+// This module is the pure "CSV → list of book entries" half. Each entry
+// is `{ title, author, isbn?, year? }` (ISBN and year are present only
+// when the source row had them). The renderer / IPC half (file picker,
+// "Find ebook" buttons, integration with Open Library search) lives
+// elsewhere and follows in a later slice.
 
 // Goodreads "Exclusive Shelf" values we treat as "want to read".
 const TO_READ_SHELVES = new Set(['to-read']);
@@ -88,7 +90,8 @@ function parseGoodreadsCsv(csv) {
   const out = [];
   for (let r = 1; r < lines.length; r += 1) {
     const fields = parseCsvLine(lines[r]);
-    if (unquote(fields[iShelf]).toLowerCase && !TO_READ_SHELVES.has(unquote(fields[iShelf]).toLowerCase())) continue;
+    const shelf = unquote(fields[iShelf]).toLowerCase();
+    if (!TO_READ_SHELVES.has(shelf)) continue;
     const title = unquote(fields[iTitle]);
     if (!title) continue;
     const author =

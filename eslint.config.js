@@ -17,7 +17,7 @@ module.exports = [
 
   // Main process + helpers (CommonJS).
   {
-    files: ['main.js', 'preload.js', 'auth.js', 'pair.js', 'safety.js', 'hash.js', 'concurrency.js', 'titles.js', 'inject-asin.js', 'bin/*.js'],
+    files: ['main.js', 'preload.js', 'auth.js', 'pair.js', 'safety.js', 'hash.js', 'concurrency.js', 'titles.js', 'inject-asin.js', 'goodreads.js', 'bin/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'commonjs',
