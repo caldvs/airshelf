@@ -1,14 +1,15 @@
-const dns = require('dns/promises');
-const net = require('net');
-const path = require('path');
+import { lookup as defaultLookup } from 'dns/promises';
+import type { LookupAddress } from 'dns';
+import * as net from 'net';
+import { basename } from 'path';
 
 // --- IP range checks --------------------------------------------------------
 
-function ipv4ToInt(ip) {
+function ipv4ToInt(ip: string): number {
   return ip.split('.').reduce((acc, oct) => (acc << 8) + parseInt(oct, 10), 0) >>> 0;
 }
 
-function inV4Range(ip, cidr) {
+function inV4Range(ip: string, cidr: string): boolean {
   const [base, prefixStr] = cidr.split('/');
   const prefix = parseInt(prefixStr, 10);
   if (prefix === 0) return true;
@@ -31,17 +32,18 @@ const PRIVATE_V4 = [
   '255.255.255.255/32', // broadcast
 ];
 
-function isPrivateIpv4(ip) {
+export function isPrivateIpv4(ip: string): boolean {
   return PRIVATE_V4.some((cidr) => inV4Range(ip, cidr));
 }
 
 // Parse any valid IPv6 string into an 8-group array of 16-bit ints.
 // Handles `::` shorthand and the IPv4-in-IPv6 dotted form (`::ffff:1.2.3.4`).
 // Returns null on invalid input.
-function parseIpv6(s) {
+function parseIpv6(s: string): number[] | null {
   if (!net.isIPv6(s)) return null;
   const lc = s.toLowerCase();
-  let head, tail;
+  let head: string[];
+  let tail: string[];
   if (lc.includes('::')) {
     const [h, t] = lc.split('::');
     head = h ? h.split(':') : [];
@@ -51,7 +53,7 @@ function parseIpv6(s) {
     tail = [];
   }
   // Decode a trailing IPv4 form (`::ffff:1.2.3.4`) into two hex groups.
-  const decodeTrailingV4 = (arr) => {
+  const decodeTrailingV4 = (arr: string[]): string[] | null => {
     const last = arr[arr.length - 1];
     if (!last || !last.includes('.')) return arr;
     if (!net.isIPv4(last)) return null;
@@ -62,9 +64,15 @@ function parseIpv6(s) {
       (((c << 8) | d) >>> 0).toString(16),
     ];
   };
-  if (tail.length) tail = decodeTrailingV4(tail);
-  else head = decodeTrailingV4(head);
-  if (head === null || tail === null) return null;
+  if (tail.length) {
+    const decoded = decodeTrailingV4(tail);
+    if (decoded === null) return null;
+    tail = decoded;
+  } else {
+    const decoded = decodeTrailingV4(head);
+    if (decoded === null) return null;
+    head = decoded;
+  }
   const fill = 8 - head.length - tail.length;
   if (fill < 0) return null;
   const groups = [...head, ...Array(fill).fill('0'), ...tail].map((g) => parseInt(g, 16));
@@ -73,7 +81,7 @@ function parseIpv6(s) {
   return groups;
 }
 
-function isPrivateIpv6(ip) {
+export function isPrivateIpv6(ip: string): boolean {
   const g = parseIpv6(ip);
   if (!g) return false;
   // :: (unspecified) and ::1 (loopback)
@@ -91,10 +99,10 @@ function isPrivateIpv6(ip) {
   // ::ffff:0:0/96 — IPv4-mapped. Decode and re-check via the v4 ranges so
   // hex-form spoofs like ::ffff:7f00:1 (= 127.0.0.1) can't sneak through.
   if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0xffff) {
-    const a = (g[6] >> 8) & 0xff,
-      b = g[6] & 0xff;
-    const c = (g[7] >> 8) & 0xff,
-      d = g[7] & 0xff;
+    const a = (g[6] >> 8) & 0xff;
+    const b = g[6] & 0xff;
+    const c = (g[7] >> 8) & 0xff;
+    const d = g[7] & 0xff;
     return isPrivateIpv4(`${a}.${b}.${c}.${d}`);
   }
   // fe80::/10 (link-local). First 10 bits = 1111111010, so first hextet
@@ -108,7 +116,7 @@ function isPrivateIpv6(ip) {
   return false;
 }
 
-function isPrivateIp(ip) {
+export function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) return isPrivateIpv4(ip);
   if (net.isIPv6(ip)) return isPrivateIpv6(ip);
   return true; // unknown / unparseable — fail closed
@@ -118,6 +126,12 @@ function isPrivateIp(ip) {
 
 const INTERNAL_HOST_SUFFIXES = ['.localhost', '.local'];
 
+type LookupFn = (hostname: string, options: { all: true }) => Promise<LookupAddress[]>;
+
+interface AssertExternalUrlOptions {
+  lookup?: LookupFn;
+}
+
 // Throws if the URL would target an internal address. Catches the common
 // cases (literal IP, "localhost", *.local, *.localhost) synchronously,
 // then DNS-resolves and rejects if any returned address is private.
@@ -126,8 +140,11 @@ const INTERNAL_HOST_SUFFIXES = ['.localhost', '.local'];
 // (DNS rebinding). Sufficient defense for a personal app that isn't a
 // high-value target; harden further with a custom undici dispatcher if the
 // threat model grows.
-async function assertExternalUrl(input, { lookup = dns.lookup } = {}) {
-  let parsed;
+export async function assertExternalUrl(
+  input: string,
+  { lookup = defaultLookup as LookupFn }: AssertExternalUrlOptions = {},
+): Promise<void> {
+  let parsed: URL;
   try {
     parsed = new URL(input);
   } catch {
@@ -159,7 +176,7 @@ async function assertExternalUrl(input, { lookup = dns.lookup } = {}) {
 // scheme-only — we don't restrict the host because the user's browser
 // (not us) makes the request, and they may legitimately want to open
 // e.g. a router admin page.
-function isSafeExternalScheme(input) {
+export function isSafeExternalScheme(input: string): boolean {
   try {
     const parsed = new URL(input);
     return parsed.protocol === 'http:' || parsed.protocol === 'https:';
@@ -174,18 +191,9 @@ function isSafeExternalScheme(input) {
 // no NUL). Used on metadata fields that get joined with the books directory
 // and served over HTTP — a tampered books.json with `book.file = "../etc"`
 // would otherwise leak files outside the library.
-function isSafeBasename(name) {
+export function isSafeBasename(name: unknown): name is string {
   if (typeof name !== 'string' || name.length === 0) return false;
   if (name === '.' || name === '..') return false;
   if (name.includes('/') || name.includes('\\') || name.includes('\0')) return false;
-  return path.basename(name) === name;
+  return basename(name) === name;
 }
-
-module.exports = {
-  isPrivateIp,
-  isPrivateIpv4,
-  isPrivateIpv6,
-  assertExternalUrl,
-  isSafeExternalScheme,
-  isSafeBasename,
-};

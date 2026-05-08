@@ -64,7 +64,6 @@
       "preload.js",
       "inject-asin.js",
       "pair.js",
-      "safety.js",
       "lib/**/*",
       "backup.js",
       "calibre.js",
