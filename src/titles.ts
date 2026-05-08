@@ -1,13 +1,11 @@
-// Pure title-handling helpers used by main.js. Single canonical impl —
-// the duplicate src/titles.ts that used to exist for test coverage was
-// removed; the tests in src/titles.test.mts now import directly from here.
+// Pure title-handling helpers used by main.js.
 
 // Loose title matching: true if one title is effectively a prefix of the
 // other after lowercase + punctuation strip. Used to decide whether two
 // title strings refer to the same book despite formatting differences
 // ("The Hobbit" vs "the hobbit:" vs "The Hobbit, An Unexpected Journey").
-function titlesMatch(a, b) {
-  const norm = (s) =>
+export function titlesMatch(a: unknown, b: unknown): boolean {
+  const norm = (s: unknown): string =>
     String(s)
       .toLowerCase()
       .replace(/[^a-z0-9 ]/g, '')
@@ -23,7 +21,7 @@ function titlesMatch(a, b) {
 }
 
 // Strip extension, author suffix, parenthetical series markers, underscores.
-function cleanTitle(raw) {
+export function cleanTitle(raw: unknown): string {
   if (!raw) return '';
   let t = String(raw);
   t = t.replace(/\.(epub|mobi|azw3?|prc|pdf|txt|fb2|lit|lrf|pdb|rtf|docx|odt|html?)$/i, '');
@@ -31,6 +29,12 @@ function cleanTitle(raw) {
   t = t.replace(/\s*\([^)]*\)\s*$/g, '');
   t = t.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
   return t;
+}
+
+export interface SeriesExtraction {
+  title: string;
+  series: string | null;
+  seriesIndex: number | null;
 }
 
 // Pull series info out of a raw title's trailing parenthetical, if it has
@@ -66,7 +70,7 @@ const EXT_RE = /\.(epub|mobi|azw3?|prc|pdf|txt|fb2|lit|lrf|pdb|rtf|docx|odt|html
 const AUTHOR_SEPARATOR_RE = /\s+--?\s+/;
 const SERIES_RE = /\s*\((?<name>[^)]+?)(?:,)?\s+#(?<idx>\d+)\)\s*$/;
 
-function extractSeries(rawTitle) {
+export function extractSeries(rawTitle: unknown): SeriesExtraction {
   if (!rawTitle) return { title: '', series: null, seriesIndex: null };
   // Pre-normalise to the same pre-title slice cleanTitle works on: drop
   // the extension first, then the author suffix. Order matters — if we
@@ -94,7 +98,7 @@ function extractSeries(rawTitle) {
 }
 
 // Pull an author out of a raw filename like "Title -- Author.epub".
-function guessAuthorFromFilename(raw) {
+export function guessAuthorFromFilename(raw: unknown): string | null {
   if (!raw) return null;
   const stripped = String(raw).replace(
     /\.(epub|mobi|azw3?|prc|pdf|txt|fb2|lit|lrf|pdb|rtf|docx|odt|html?)$/i,
@@ -115,17 +119,9 @@ function guessAuthorFromFilename(raw) {
 // Decide whether to adopt an Open Library title as the canonical one.
 // Only adopt if OL's title is a near-match (so we know it's the same book)
 // and isn't dramatically longer (ours is often the cleaner trimmed form).
-function shouldUseOpenLibraryTitle(local, ol) {
+export function shouldUseOpenLibraryTitle(local: string, ol: string | null | undefined): boolean {
   if (!ol) return false;
   if (ol === local) return false;
   if (!titlesMatch(ol, local)) return false;
   return ol.length <= local.length + 4;
 }
-
-module.exports = {
-  titlesMatch,
-  cleanTitle,
-  extractSeries,
-  guessAuthorFromFilename,
-  shouldUseOpenLibraryTitle,
-};
