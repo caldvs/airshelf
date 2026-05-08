@@ -60,7 +60,6 @@
     "afterSign": "build/notarize.js",
     "files": [
       "main.js",
-      "titles.js",
       "preload.js",
       "inject-asin.js",
       "pair.js",

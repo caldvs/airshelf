@@ -39,7 +39,12 @@ const PORT = parseInt(process.env.PORT, 10) || 6790;
 
 // Files the Kindle experimental browser can download directly
 const { normalizeKindleMetadata } = require('./inject-asin.js');
-const { titlesMatch, cleanTitle, extractSeries, guessAuthorFromFilename } = require('./titles.js');
+const {
+  titlesMatch,
+  cleanTitle,
+  extractSeries,
+  guessAuthorFromFilename,
+} = require('./lib/titles.js');
 
 const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us

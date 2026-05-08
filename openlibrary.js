@@ -7,7 +7,7 @@
 // want to stub the network in tests. Default is the global `fetch`.
 
 const fs = require('fs');
-const { cleanTitle } = require('./titles.js');
+const { cleanTitle } = require('./lib/titles.js');
 
 const SEARCH_URL = 'https://openlibrary.org/search.json';
 const COVER_BASE = 'https://covers.openlibrary.org/b';
