@@ -6,6 +6,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
+const { Bonjour } = require('bonjour-service');
 const { hashFileSha1 } = require('./hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
 
@@ -274,6 +275,10 @@ let booksDir = null;
 let metaFile = null;
 let serverToken = null;
 let settingsFile = null;
+let bonjour = null;
+// Stable hostname registered over mDNS. Resolves to `airshelf.local` on the
+// LAN, so the Kindle browser doesn't need the Mac's ever-changing DHCP IP.
+const MDNS_HOST = 'airshelf';
 
 // ---------- Settings (small key/value store, separate from books.json) ----------
 //
@@ -1404,7 +1409,47 @@ function startServer() {
       res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
     }
   });
-  server.listen(PORT, '0.0.0.0');
+  // Start mDNS only once `listen` actually succeeds — listen is async and
+  // we don't want to advertise a hostname that isn't accepting connections
+  // yet (or at all, if listen errors out). On error, undo any advertise
+  // that may have happened on a retry path.
+  server.listen(PORT, '0.0.0.0', () => startMdns());
+  server.on('error', (e) => {
+    console.error('[server] listen error', e);
+    stopMdns();
+  });
+}
+
+// Advertise the HTTP server over mDNS as `airshelf._http._tcp.local.` and
+// register an A record for `airshelf.local` pointing at this machine. Lets
+// the Kindle's browser hit `http://airshelf.local:6790/<token>/` instead of
+// a typed-in DHCP IP that drifts across reconnects. Failures are logged
+// and swallowed — the IP-based URL still works as a fallback.
+function startMdns() {
+  if (bonjour) return;
+  try {
+    bonjour = new Bonjour();
+    bonjour.publish({
+      name: 'Airshelf',
+      type: 'http',
+      port: PORT,
+      host: MDNS_HOST,
+    });
+  } catch (e) {
+    console.warn('[mdns] publish failed:', e.message);
+    bonjour = null;
+  }
+}
+
+function stopMdns() {
+  if (!bonjour) return;
+  // Capture the instance *before* nulling the global so the unpublishAll
+  // callback can still call destroy() — without this, the closure reads
+  // the (now null) global and the mDNS sockets are never torn down,
+  // which means goodbye packets aren't sent.
+  const b = bonjour;
+  bonjour = null;
+  try { b.unpublishAll(() => b.destroy()); } catch {}
 }
 
 // ---------- Electron ----------
@@ -1437,6 +1482,9 @@ app.whenReady().then(() => {
   settingsFile = path.join(userData, 'settings.json');
   serverToken = loadOrCreateServerToken(userData);
 
+  // startServer() also wires startMdns() into the `listening` callback so
+  // we don't advertise a hostname before the HTTP server is accepting
+  // connections.
   startServer();
   createWindow();
   migrateExistingBooks().catch(e => console.error('migration error', e));
@@ -1447,9 +1495,14 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  stopMdns();
   if (server) { server.close(); server = null; }
   if (process.platform !== 'darwin') app.quit();
 });
+
+// Send mDNS goodbye packets before exit so the LAN sees the service drop
+// immediately instead of waiting for the TTL to expire.
+app.on('before-quit', stopMdns);
 
 // ---------- IPC ----------
 
@@ -1523,11 +1576,14 @@ ipcMain.handle('books:delete', (_e, id) => deleteBook(id));
 
 ipcMain.handle('server:info', () => {
   const ip = getLocalIP();
+  const mdnsHost = bonjour ? `${MDNS_HOST}.local` : null;
   return {
     ip,
     port: PORT,
     token: serverToken,
     url: `http://${ip}:${PORT}/${serverToken}/`,
+    mdnsHost,
+    mdnsUrl: mdnsHost ? `http://${mdnsHost}:${PORT}/${serverToken}/` : null,
     running: !!server,
   };
 });
