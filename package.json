@@ -67,6 +67,7 @@
       "backup.js",
       "calibre.js",
       "openlibrary.js",
+      "settings.js",
       "route-auth.js",
       "route-cover.js",
       "route-index.js",

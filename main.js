@@ -300,7 +300,6 @@ let metaFile = null;
 let serverToken = null;
 let userDataPath = null;
 const pairStore = new PairCodeStore();
-let settingsFile = null;
 let bonjour = null;
 // Stable hostname registered over mDNS. Resolves to `airshelf.local` on the
 // LAN, so the Kindle browser doesn't need the Mac's ever-changing DHCP IP.
@@ -308,40 +307,31 @@ const MDNS_HOST = 'airshelf';
 
 // ---------- Settings (small key/value store, separate from books.json) ----------
 //
-// The set of fields persisted here is deliberately tiny — anything bigger
-// (themes, library state, etc.) belongs in localStorage on the renderer side
-// or in books.json. Today the only entry is `calibreBinDir` for #29.
+// Implementation moved to ./settings.js. Start with an in-memory store so
+// any caller that runs before app.whenReady (defensive — none today) gets
+// real load/save semantics rather than a no-op shim. Once userData is
+// known, swap to a file-backed store and migrate any pre-init writes
+// across so nothing is lost.
 
-let settingsCache = null;
+const { createSettingsStore } = require('./settings.js');
+let settingsStore = createSettingsStore(null);
 
 function loadSettings() {
-  if (settingsCache) return settingsCache;
-  if (!settingsFile) return (settingsCache = {});
-  try {
-    const raw = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    // Plain object only — reject arrays (typeof [] === 'object') and null.
-    // A malformed/tampered settings.json shouldn't poison saveSettings, which
-    // spreads into a fresh object expecting string keys.
-    settingsCache = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  } catch {
-    settingsCache = {};
-  }
-  return settingsCache;
+  return settingsStore.load();
 }
 
 function saveSettings(patch) {
-  const next = { ...loadSettings(), ...patch };
-  // Drop nulls so calling saveSettings({ calibreBinDir: null }) actually
-  // forgets the key rather than persisting `null`.
-  for (const k of Object.keys(next)) {
-    if (next[k] == null) delete next[k];
-  }
-  settingsCache = next;
-  if (!settingsFile) return next;
-  const tmp = `${settingsFile}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, settingsFile);
-  return next;
+  return settingsStore.save(patch);
+}
+
+function initSettingsStore(filePath) {
+  const fileStore = createSettingsStore(filePath);
+  // Carry over any pre-init writes. The file-backed store's load() picks
+  // up whatever is already on disk; merging the in-memory snapshot on top
+  // means in-memory writes win (they're more recent).
+  const pending = settingsStore.load();
+  if (Object.keys(pending).length > 0) fileStore.save(pending);
+  settingsStore = fileStore;
 }
 
 // ---------- Book storage ----------
@@ -1443,7 +1433,7 @@ app.whenReady().then(() => {
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
-  settingsFile = path.join(userData, 'settings.json');
+  initSettingsStore(path.join(userData, 'settings.json'));
   serverToken = loadOrCreateServerToken(userData);
 
   // startServer() also wires startMdns() into the `listening` callback so
