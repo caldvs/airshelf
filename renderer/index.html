@@ -3,6 +3,14 @@
 <head>
   <meta charset="utf-8">
   <title>Airshelf</title>
+  <!-- Defence-in-depth alongside renderer sandboxing. file:// origin renders
+       this page; everything else is loaded over file:// or fetched from the
+       loopback server. epubjs renders books inside blob: iframes.
+       style-src allows 'unsafe-inline' because the renderer assigns runtime
+       inline styles via the DOM (e.g. progress-bar width, reader error
+       fallback). script-src stays strict — that's the lever for XSS. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:6790; font-src 'self' data:; connect-src http://127.0.0.1:6790; frame-src 'self' blob:; object-src 'none'; base-uri 'none';">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,6 +27,17 @@
     <main class="content">
       <!-- Bookshelf view -->
       <section class="view" id="view-bookshelf">
+        <div class="missing-dep hidden" id="calibre-banner" role="status">
+          <div class="missing-dep-text">
+            <strong>Calibre not detected.</strong>
+            <span>Until Calibre is installed, only existing AZW3 files can be imported. Every other format requires Calibre for conversion.</span>
+          </div>
+          <div class="missing-dep-actions">
+            <button class="missing-dep-btn" id="calibre-banner-locate">Locate…</button>
+            <button class="missing-dep-btn" id="calibre-banner-get">Get Calibre</button>
+            <button class="missing-dep-close" id="calibre-banner-dismiss" aria-label="Dismiss">×</button>
+          </div>
+        </div>
         <div class="shelf" id="shelf"></div>
         <div class="drop-hint" id="drop-hint">Drop ebooks here</div>
       </section>
@@ -37,6 +56,10 @@
               <button class="copy-btn" id="btn-copy" title="Copy">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
+            </div>
+            <div class="url-fallback hidden" id="url-fallback">
+              <span class="url-fallback-label">Doesn&rsquo;t work? Try</span>
+              <code id="server-url-fallback"></code>
             </div>
           </div>
 
@@ -79,30 +102,45 @@
           <div class="setting-section-label">Theme</div>
           <div class="theme-picker" id="theme-picker">
             <button class="theme-swatch active" data-theme="cloud" title="Cloud">
-              <span class="swatch-color" style="background: #f7f8fa; border-color: #dcdce3"></span>
-              <span class="swatch-dot" style="background: #2563eb"></span>
+              <span class="swatch-color"></span>
+              <span class="swatch-dot"></span>
               <span class="swatch-name">Cloud</span>
             </button>
             <button class="theme-swatch" data-theme="sand" title="Sand">
-              <span class="swatch-color" style="background: #f5f0e8; border-color: #d6cab5"></span>
-              <span class="swatch-dot" style="background: #b45309"></span>
+              <span class="swatch-color"></span>
+              <span class="swatch-dot"></span>
               <span class="swatch-name">Sand</span>
             </button>
             <button class="theme-swatch" data-theme="slate" title="Slate">
-              <span class="swatch-color" style="background: #1a1d23; border-color: #3e444d"></span>
-              <span class="swatch-dot" style="background: #6d9fff"></span>
+              <span class="swatch-color"></span>
+              <span class="swatch-dot"></span>
               <span class="swatch-name">Slate</span>
             </button>
             <button class="theme-swatch" data-theme="rose" title="Rose">
-              <span class="swatch-color" style="background: #fdf2f4; border-color: #e4cdd2"></span>
-              <span class="swatch-dot" style="background: #be185d"></span>
+              <span class="swatch-color"></span>
+              <span class="swatch-dot"></span>
               <span class="swatch-name">Rose</span>
             </button>
             <button class="theme-swatch" data-theme="moss" title="Moss">
-              <span class="swatch-color" style="background: #f0f4ef; border-color: #c4d1bf"></span>
-              <span class="swatch-dot" style="background: #15803d"></span>
+              <span class="swatch-color"></span>
+              <span class="swatch-dot"></span>
               <span class="swatch-name">Moss</span>
             </button>
+          </div>
+
+          <div class="setting-section-label">Calibre</div>
+          <div class="setting-row setting-row-stacked">
+            <div class="setting-row-main">
+              <div class="setting-label">Status</div>
+              <div class="setting-value" id="calibre-status">Checking…</div>
+            </div>
+            <div class="setting-row-sub" id="calibre-status-path"></div>
+            <div class="setting-row-actions">
+              <button class="setting-btn" id="calibre-redetect">Re-detect</button>
+              <button class="setting-btn" id="calibre-locate">Locate ebook-convert…</button>
+              <button class="setting-btn setting-btn-ghost hidden" id="calibre-clear">Forget saved path</button>
+              <button class="setting-btn setting-btn-ghost" id="calibre-get">Download Calibre</button>
+            </div>
           </div>
 
           <div class="setting-section-label">General</div>
@@ -113,6 +151,26 @@
           <div class="setting-row">
             <div class="setting-label">Version</div>
             <div class="setting-value">0.1.0</div>
+          </div>
+
+          <div class="setting-section-label">Library</div>
+          <div class="setting-row setting-row-stacked">
+            <div class="setting-row-main">
+              <div class="setting-label">Back up library</div>
+            </div>
+            <div class="setting-row-sub">Save a zip of your books and metadata to a file you choose.</div>
+            <div class="setting-row-actions">
+              <button class="setting-btn setting-btn-ghost" id="btn-backup">Back up library…</button>
+            </div>
+          </div>
+          <div class="setting-row setting-row-stacked">
+            <div class="setting-row-main">
+              <div class="setting-label">Restore from backup</div>
+            </div>
+            <div class="setting-row-sub">Replace the current library with the contents of a backup zip.</div>
+            <div class="setting-row-actions">
+              <button class="setting-btn setting-btn-danger" id="btn-restore">Restore from backup…</button>
+            </div>
           </div>
         </div>
       </section>

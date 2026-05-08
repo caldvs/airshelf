@@ -318,15 +318,80 @@ window.addEventListener('drop', async (e) => {
 });
 
 // ---- Transfer view ----
+const serverUrlFallbackEl = document.getElementById('server-url-fallback');
+const urlFallbackEl = document.getElementById('url-fallback');
+
 async function loadServerInfo() {
   const info = await window.airshelf.serverInfo();
-  serverUrlEl.textContent = info.url;
+  // Prefer the mDNS hostname URL — the Kindle doesn't have to type a DHCP
+  // IP that drifts across reconnects. Some Kindle firmwares can't resolve
+  // .local, so the IP-based URL is shown as a fallback below.
+  if (info.mdnsUrl) {
+    serverUrlEl.textContent = info.mdnsUrl;
+    serverUrlFallbackEl.textContent = info.url;
+    urlFallbackEl.classList.remove('hidden');
+  } else {
+    serverUrlEl.textContent = info.url;
+    serverUrlFallbackEl.textContent = '';
+    urlFallbackEl.classList.add('hidden');
+  }
 }
 
 document.getElementById('btn-copy').addEventListener('click', () => {
   navigator.clipboard.writeText(serverUrlEl.textContent);
   showToast('Copied', 'success');
 });
+
+// ---- Backup / restore ----
+function humanBytes(n) {
+  if (!Number.isFinite(n) || n < 0) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+const btnBackup = document.getElementById('btn-backup');
+if (btnBackup) {
+  btnBackup.addEventListener('click', async () => {
+    btnBackup.disabled = true;
+    setBusy('Backing up…');
+    try {
+      const r = await window.airshelf.backupLibrary();
+      if (r && r.canceled) return;
+      if (r && r.ok) {
+        showToast(`Backed up ${r.bookCount} book${r.bookCount === 1 ? '' : 's'} (${humanBytes(r.size)})`, 'success');
+      } else {
+        showToast(`Backup failed: ${(r && r.error) || 'unknown error'}`, 'error');
+      }
+    } finally {
+      setBusy(null);
+      btnBackup.disabled = false;
+    }
+  });
+}
+
+const btnRestore = document.getElementById('btn-restore');
+if (btnRestore) {
+  btnRestore.addEventListener('click', async () => {
+    btnRestore.disabled = true;
+    setBusy('Restoring…');
+    try {
+      const r = await window.airshelf.restoreLibrary();
+      if (r && r.canceled) return;
+      if (r && r.ok) {
+        // Don't call refresh() here — main process emits books:changed
+        // during restore and onBooksChanged below already refreshes.
+        showToast(`Restored ${r.bookCount} book${r.bookCount === 1 ? '' : 's'}`, 'success');
+      } else {
+        showToast(`Restore failed: ${(r && r.error) || 'unknown error'}`, 'error');
+      }
+    } finally {
+      setBusy(null);
+      btnRestore.disabled = false;
+    }
+  });
+}
 
 // Listen for background migrations / changes from main
 if (window.airshelf.onBooksChanged) {
@@ -485,8 +550,101 @@ document.addEventListener('keydown', (e) => {
   if (searchPalette.classList.contains('active')) closeSearchPalette();
   else openSearchPalette();
 });
+// ---- Calibre detection ----
+//
+// The banner above the shelf is dismissable via localStorage so users who
+// genuinely don't need Calibre (Kindle-native formats only) aren't nagged on
+// every launch. Any transition to "found" — auto or user — clears the dismiss
+// flag, so future breakage re-surfaces the banner. The Settings panel always
+// reflects current status regardless.
+
+const CALIBRE_DOWNLOAD_URL = 'https://calibre-ebook.com/download_osx';
+const CALIBRE_BANNER_DISMISS_KEY = 'airshelf-calibre-banner-dismissed';
+
+const calibreBanner = document.getElementById('calibre-banner');
+const calibreStatusEl = document.getElementById('calibre-status');
+const calibreStatusPathEl = document.getElementById('calibre-status-path');
+const calibreClearBtn = document.getElementById('calibre-clear');
+
+async function refreshCalibreStatus() {
+  let s;
+  try {
+    s = await window.airshelf.calibreStatus();
+  } catch {
+    s = { found: false, binDir: null, source: null };
+  }
+  // Forget-button visibility is tied to whether a user path is *saved* in
+  // settings, not to whether it's currently active. A saved-but-stale entry
+  // (Calibre moved/uninstalled, auto-detect took over) still needs to be
+  // clearable from the UI, otherwise the dead path stays in settings.json
+  // forever.
+  calibreClearBtn.classList.toggle('hidden', !s.userPathSaved);
+
+  if (s.found) {
+    calibreStatusEl.textContent = s.source === 'user' ? 'Found (custom path)' : 'Found';
+    calibreStatusPathEl.textContent = s.binDir || '';
+    calibreBanner.classList.add('hidden');
+    // Clear the dismiss flag on every found-state read, not just after a
+    // successful Locate, so an auto-detected Calibre arrival also resets it.
+    localStorage.removeItem(CALIBRE_BANNER_DISMISS_KEY);
+  } else {
+    calibreStatusEl.textContent = 'Not found';
+    calibreStatusPathEl.textContent = '';
+    if (!localStorage.getItem(CALIBRE_BANNER_DISMISS_KEY)) {
+      calibreBanner.classList.remove('hidden');
+    }
+  }
+  return s;
+}
+
+async function calibreLocateFlow() {
+  let r;
+  try {
+    r = await window.airshelf.calibreLocate();
+  } catch (e) {
+    showToast(`Locate failed: ${e.message}`, 'error');
+    return;
+  }
+  if (!r || r.canceled) return;
+  if (r.error) { showToast(r.error, 'error'); return; }
+  showToast('Calibre saved', 'success');
+  refreshCalibreStatus();
+}
+
+async function openCalibreDownload() {
+  try {
+    // open:external resolves with `{ ok, error }` rather than rejecting on
+    // shell-open failure, so we need to inspect the payload too.
+    const r = await window.airshelf.openExternal(CALIBRE_DOWNLOAD_URL);
+    if (r && r.ok === false) {
+      showToast(`Could not open browser: ${r.error || 'unknown error'}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Could not open browser: ${e.message}`, 'error');
+  }
+}
+
+document.getElementById('calibre-banner-locate').addEventListener('click', calibreLocateFlow);
+document.getElementById('calibre-banner-get').addEventListener('click', openCalibreDownload);
+document.getElementById('calibre-banner-dismiss').addEventListener('click', () => {
+  localStorage.setItem(CALIBRE_BANNER_DISMISS_KEY, '1');
+  calibreBanner.classList.add('hidden');
+});
+document.getElementById('calibre-redetect').addEventListener('click', refreshCalibreStatus);
+document.getElementById('calibre-locate').addEventListener('click', calibreLocateFlow);
+document.getElementById('calibre-clear').addEventListener('click', async () => {
+  try {
+    await window.airshelf.calibreClear();
+  } catch (e) {
+    showToast(`Forget failed: ${e.message}`, 'error');
+    return;
+  }
+  refreshCalibreStatus();
+});
+document.getElementById('calibre-get').addEventListener('click', openCalibreDownload);
 
 // ---- Init ----
 refresh();
 loadServerInfo();
 setInterval(loadServerInfo, 5000);
+refreshCalibreStatus();

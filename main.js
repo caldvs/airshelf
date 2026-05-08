@@ -6,6 +6,7 @@ const http = require('http');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
+const { Bonjour } = require('bonjour-service');
 const { hashFileSha1 } = require('./hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
 
@@ -47,29 +48,57 @@ const CONVERTIBLE_EXTS = [
 ];
 const SUPPORTED_EXTS = [...KINDLE_NATIVE_EXTS, ...CONVERTIBLE_EXTS];
 
-// Locate Calibre's ebook-convert binary
-function findEbookConvert() {
-  const candidates = [
-    '/opt/homebrew/bin/ebook-convert',
-    '/usr/local/bin/ebook-convert',
-    '/Applications/calibre.app/Contents/MacOS/ebook-convert',
-  ];
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch {}
+// Locate Calibre's ebook-convert / ebook-meta binaries.
+//
+// Auto-probe a few well-known macOS install locations; if the user has pointed
+// us at a custom directory via the settings file (e.g. Calibre installed to
+// ~/Applications), check that first. We resolve the *binary* path each call
+// rather than caching, because the user may relocate Calibre while the app is
+// running and we want the next conversion to pick up the new path.
+const AUTO_CALIBRE_BIN_DIRS = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  '/Applications/calibre.app/Contents/MacOS',
+];
+
+function isExistingFile(p) {
+  try { return fs.statSync(p).isFile(); } catch { return false; }
+}
+
+// Probe order: user-saved dir first, then well-known auto locations. Both
+// binaries must come from the same directory — a userDir that has only
+// ebook-convert (e.g. partially broken install) shouldn't silently let
+// ebook-meta fall through to /opt/homebrew/bin and produce a half-resolved
+// "found" state where binDir doesn't actually own both tools.
+function findCalibreBinDir() {
+  const userDir = getCalibreUserBinDir();
+  const dirs = userDir ? [userDir, ...AUTO_CALIBRE_BIN_DIRS] : AUTO_CALIBRE_BIN_DIRS;
+  for (const dir of dirs) {
+    if (
+      isExistingFile(path.join(dir, 'ebook-convert')) &&
+      isExistingFile(path.join(dir, 'ebook-meta'))
+    ) return dir;
   }
   return null;
 }
 
+function findEbookConvert() {
+  const d = findCalibreBinDir();
+  return d ? path.join(d, 'ebook-convert') : null;
+}
 function findEbookMeta() {
-  const candidates = [
-    '/opt/homebrew/bin/ebook-meta',
-    '/usr/local/bin/ebook-meta',
-    '/Applications/calibre.app/Contents/MacOS/ebook-meta',
-  ];
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch {}
-  }
-  return null;
+  const d = findCalibreBinDir();
+  return d ? path.join(d, 'ebook-meta') : null;
+}
+
+// Returns the directory the user explicitly chose, or null if none / invalid.
+// Validation is per-read because `ebook-convert` could have been moved/deleted
+// since the path was saved.
+function getCalibreUserBinDir() {
+  const dir = loadSettings().calibreBinDir;
+  if (!dir || typeof dir !== 'string') return null;
+  try { if (!fs.statSync(dir).isDirectory()) return null; } catch { return null; }
+  return dir;
 }
 
 // Inject a cover into an existing MOBI/EPUB using Calibre's ebook-meta.
@@ -236,7 +265,10 @@ async function getOrBuildReaderEpub(book) {
 }
 
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
+const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const { authoriseRequest } = require('./route-auth.js');
+const { handleCoverRequest } = require('./route-cover.js');
 const authLimiter = new FailedAuthLimiter();
 
 let mainWindow = null;
@@ -244,6 +276,49 @@ let server = null;
 let booksDir = null;
 let metaFile = null;
 let serverToken = null;
+let settingsFile = null;
+let bonjour = null;
+// Stable hostname registered over mDNS. Resolves to `airshelf.local` on the
+// LAN, so the Kindle browser doesn't need the Mac's ever-changing DHCP IP.
+const MDNS_HOST = 'airshelf';
+
+// ---------- Settings (small key/value store, separate from books.json) ----------
+//
+// The set of fields persisted here is deliberately tiny — anything bigger
+// (themes, library state, etc.) belongs in localStorage on the renderer side
+// or in books.json. Today the only entry is `calibreBinDir` for #29.
+
+let settingsCache = null;
+
+function loadSettings() {
+  if (settingsCache) return settingsCache;
+  if (!settingsFile) return (settingsCache = {});
+  try {
+    const raw = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    // Plain object only — reject arrays (typeof [] === 'object') and null.
+    // A malformed/tampered settings.json shouldn't poison saveSettings, which
+    // spreads into a fresh object expecting string keys.
+    settingsCache = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    settingsCache = {};
+  }
+  return settingsCache;
+}
+
+function saveSettings(patch) {
+  const next = { ...loadSettings(), ...patch };
+  // Drop nulls so calling saveSettings({ calibreBinDir: null }) actually
+  // forgets the key rather than persisting `null`.
+  for (const k of Object.keys(next)) {
+    if (next[k] == null) delete next[k];
+  }
+  settingsCache = next;
+  if (!settingsFile) return next;
+  const tmp = `${settingsFile}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, settingsFile);
+  return next;
+}
 
 // ---------- Book storage ----------
 
@@ -1160,22 +1235,28 @@ function startServer() {
 
   server = http.createServer(async (req, res) => {
     const ip = req.socket.remoteAddress || 'unknown';
+    // Short-circuit blocked IPs BEFORE parsing the URL so a malformed
+    // req.url can't tip a blocked client into the catch path's 500
+    // response — that would break the stealth-404 behavior.
+    if (authLimiter.isBlocked(ip)) {
+      res.writeHead(404); res.end('Not found'); return;
+    }
     try {
-      // Per-IP rate limit: with a 6-char token (~20 bits), throttling is what
-      // keeps brute-force impractical. Block returns 404 (stealth) not 429.
-      if (authLimiter.isBlocked(ip)) {
-        res.writeHead(404); res.end('Not found'); return;
-      }
       const url = new URL(req.url, `http://${req.headers.host}`);
-      // Require /<6-lowercase-token>/... on every request. Without it, 404
-      // (not 401) so the server is indistinguishable from no server at all.
-      const tokMatch = url.pathname.match(/^\/([a-z]{6})(\/.*)?$/);
-      if (!tokMatch || !tokensMatch(tokMatch[1], serverToken)) {
-        authLimiter.recordFail(ip);
-        res.writeHead(404); res.end('Not found'); return;
+      // Token + per-IP rate-limit gate. See route-auth.js for the rules; a
+      // bad/missing token returns a stealth 404 (not 401) so the server is
+      // indistinguishable from no server at all to a port-scan.
+      const auth = authoriseRequest({
+        pathname: url.pathname,
+        ip,
+        expectedToken: serverToken,
+        limiter: authLimiter,
+        tokensMatch,
+      });
+      if (!auth.allow) {
+        res.writeHead(auth.status); res.end('Not found'); return;
       }
-      authLimiter.recordSuccess(ip);
-      const subPath = tokMatch[2] || '/';
+      const subPath = auth.subPath;
       if (subPath === '/screenshot') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -1194,42 +1275,21 @@ function startServer() {
         res.end(renderIndexHtml());
         return;
       }
-      const coverMatch = subPath.match(/^\/cover\/([a-f0-9]+)$/);
-      if (coverMatch) {
-        const id = coverMatch[1];
-        const book = listBooks().find(b => b.id === id);
-        if (!book || !book.cover) { res.writeHead(404); res.end('No cover'); return; }
-        const coverPath = path.join(booksDir, book.cover);
-        if (!fs.existsSync(coverPath)) { res.writeHead(404); res.end('Missing'); return; }
-        const stat = fs.statSync(coverPath);
-        const etag = `"${id}-${stat.size}-${Math.floor(stat.mtimeMs)}"`;
-        const lastModified = stat.mtime.toUTCString();
-
-        // 304 if the client already has it
-        if (req.headers['if-none-match'] === etag ||
-            req.headers['if-modified-since'] === lastModified) {
-          res.writeHead(304, {
-            'ETag': etag,
-            'Cache-Control': 'public, max-age=2592000, immutable',
-          });
+      const coverDecision = handleCoverRequest({
+        subPath,
+        books: listBooks(),
+        booksDir,
+        ifNoneMatch: req.headers['if-none-match'],
+        ifModifiedSince: req.headers['if-modified-since'],
+      });
+      if (coverDecision) {
+        if (coverDecision.body !== undefined) {
+          res.writeHead(coverDecision.status, coverDecision.headers || {});
+          res.end(coverDecision.body);
+        } else {
+          res.writeHead(coverDecision.status, coverDecision.headers || {});
           res.end();
-          return;
         }
-
-        const buf = fs.readFileSync(coverPath);
-        // sniff image type
-        let type = 'image/jpeg';
-        if (buf[0] === 0x89 && buf[1] === 0x50) type = 'image/png';
-        else if (buf[0] === 0x47 && buf[1] === 0x49) type = 'image/gif';
-        res.writeHead(200, {
-          'Content-Type': type,
-          'Content-Length': buf.length,
-          'Cache-Control': 'public, max-age=2592000, immutable',
-          'ETag': etag,
-          'Last-Modified': lastModified,
-          'Expires': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString(),
-        });
-        res.end(buf);
         return;
       }
       // Match Bookify's URL pattern: /download/<id> with no extension.
@@ -1336,7 +1396,47 @@ function startServer() {
       res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
     }
   });
-  server.listen(PORT, '0.0.0.0');
+  // Start mDNS only once `listen` actually succeeds — listen is async and
+  // we don't want to advertise a hostname that isn't accepting connections
+  // yet (or at all, if listen errors out). On error, undo any advertise
+  // that may have happened on a retry path.
+  server.listen(PORT, '0.0.0.0', () => startMdns());
+  server.on('error', (e) => {
+    console.error('[server] listen error', e);
+    stopMdns();
+  });
+}
+
+// Advertise the HTTP server over mDNS as `airshelf._http._tcp.local.` and
+// register an A record for `airshelf.local` pointing at this machine. Lets
+// the Kindle's browser hit `http://airshelf.local:6790/<token>/` instead of
+// a typed-in DHCP IP that drifts across reconnects. Failures are logged
+// and swallowed — the IP-based URL still works as a fallback.
+function startMdns() {
+  if (bonjour) return;
+  try {
+    bonjour = new Bonjour();
+    bonjour.publish({
+      name: 'Airshelf',
+      type: 'http',
+      port: PORT,
+      host: MDNS_HOST,
+    });
+  } catch (e) {
+    console.warn('[mdns] publish failed:', e.message);
+    bonjour = null;
+  }
+}
+
+function stopMdns() {
+  if (!bonjour) return;
+  // Capture the instance *before* nulling the global so the unpublishAll
+  // callback can still call destroy() — without this, the closure reads
+  // the (now null) global and the mDNS sockets are never torn down,
+  // which means goodbye packets aren't sent.
+  const b = bonjour;
+  bonjour = null;
+  try { b.unpublishAll(() => b.destroy()); } catch {}
 }
 
 // ---------- Electron ----------
@@ -1352,6 +1452,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -1365,8 +1466,12 @@ app.whenReady().then(() => {
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
+  settingsFile = path.join(userData, 'settings.json');
   serverToken = loadOrCreateServerToken(userData);
 
+  // startServer() also wires startMdns() into the `listening` callback so
+  // we don't advertise a hostname before the HTTP server is accepting
+  // connections.
   startServer();
   createWindow();
   migrateExistingBooks().catch(e => console.error('migration error', e));
@@ -1377,9 +1482,14 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  stopMdns();
   if (server) { server.close(); server = null; }
   if (process.platform !== 'darwin') app.quit();
 });
+
+// Send mDNS goodbye packets before exit so the LAN sees the service drop
+// immediately instead of waiting for the TTL to expire.
+app.on('before-quit', stopMdns);
 
 // ---------- IPC ----------
 
@@ -1453,13 +1563,76 @@ ipcMain.handle('books:delete', (_e, id) => deleteBook(id));
 
 ipcMain.handle('server:info', () => {
   const ip = getLocalIP();
+  const mdnsHost = bonjour ? `${MDNS_HOST}.local` : null;
   return {
     ip,
     port: PORT,
     token: serverToken,
     url: `http://${ip}:${PORT}/${serverToken}/`,
+    mdnsHost,
+    mdnsUrl: mdnsHost ? `http://${mdnsHost}:${PORT}/${serverToken}/` : null,
     running: !!server,
   };
+});
+
+// ---------- Calibre detection ----------
+//
+// `source` distinguishes a directory the user explicitly chose ("user") from
+// one we found by probing well-known locations ("auto"), so the settings UI
+// can offer to forget the saved path without also wiping an auto-detection.
+
+function calibreStatusPayload() {
+  // userPathSaved reflects whether settings has *any* calibreBinDir entry,
+  // even if the directory no longer exists or is missing binaries. The UI
+  // uses this to surface "Forget saved path" when a user-saved value has
+  // become stale and auto-detection took over (source === 'auto'); without
+  // this signal there's no way to clear the dead entry from settings.json.
+  const rawSaved = loadSettings().calibreBinDir;
+  const userPathSaved = typeof rawSaved === 'string' && rawSaved.length > 0;
+  const userDir = getCalibreUserBinDir();
+  const binDir = findCalibreBinDir();
+  if (!binDir) return { found: false, binDir: null, source: null, userPathSaved };
+  return {
+    found: true,
+    binDir,
+    source: userDir && binDir === userDir ? 'user' : 'auto',
+    userPathSaved,
+  };
+}
+
+ipcMain.handle('calibre:status', () => calibreStatusPayload());
+
+ipcMain.handle('calibre:locate', async () => {
+  // No `filters` array — macOS NSOpenPanel without filters lets the user
+  // pick a no-extension binary like ebook-convert. A filter of ['*'] hides
+  // extensionless files on some macOS versions.
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Locate Calibre’s ebook-convert',
+    message: 'Select the ebook-convert binary inside your Calibre install.',
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const picked = result.filePaths[0];
+  if (path.basename(picked) !== 'ebook-convert') {
+    return { error: 'Pick the ebook-convert binary itself, not a wrapper or alias.' };
+  }
+  if (!isExistingFile(picked)) {
+    return { error: 'That path is not a regular file.' };
+  }
+  const binDir = path.dirname(picked);
+  // ebook-meta lives next to ebook-convert in every Calibre install we know
+  // of; refuse to save a directory that's missing it rather than discover
+  // half-broken Calibre at cover-extraction time.
+  if (!isExistingFile(path.join(binDir, 'ebook-meta'))) {
+    return { error: 'That folder is missing ebook-meta — not a complete Calibre install.' };
+  }
+  saveSettings({ calibreBinDir: binDir });
+  return { ok: true, ...calibreStatusPayload() };
+});
+
+ipcMain.handle('calibre:clear', () => {
+  saveSettings({ calibreBinDir: null });
+  return calibreStatusPayload();
 });
 
 ipcMain.handle('open:external', async (_e, url) => {
@@ -1531,6 +1704,179 @@ ipcMain.handle('cover:setFromFile', async (_e, bookId) => {
     return await setBookCoverFromBuffer(bookId, buf);
   } catch (e) {
     return { error: `Could not read file: ${e.message}` };
+  }
+});
+
+// ---------- Backup / restore ----------
+
+ipcMain.handle('library:backup', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Back up library',
+    defaultPath: `airshelf-backup-${today}.zip`,
+    filters: [{ name: 'Zip Archive', extensions: ['zip'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  try {
+    const meta = loadMeta();
+    const zip = new AdmZip();
+    zip.addFile(
+      'manifest.json',
+      Buffer.from(JSON.stringify(buildManifest({ bookCount: meta.books.length }), null, 2)),
+    );
+    // Write the sanitized meta (filtered by loadMeta) rather than raw
+    // metaFile bytes. If books.json contains entries that loadMeta would
+    // drop (unsafe basename, etc.), the backup would otherwise capture
+    // the bad entries and fail validateBackup on restore — and
+    // manifest.bookCount would mismatch the archived books.json.
+    zip.addFile('books.json', Buffer.from(JSON.stringify(meta, null, 2)));
+    if (fs.existsSync(booksDir)) zip.addLocalFolder(booksDir, 'books');
+    zip.writeZip(result.filePath);
+    const size = fs.statSync(result.filePath).size;
+    return { ok: true, path: result.filePath, size, bookCount: meta.books.length };
+  } catch (e) {
+    console.error('Backup failed:', e);
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('library:restore', async () => {
+  const open = await dialog.showOpenDialog(mainWindow, {
+    title: 'Restore library from backup',
+    properties: ['openFile'],
+    filters: [{ name: 'Zip Archive', extensions: ['zip'] }],
+  });
+  if (open.canceled || !open.filePaths[0]) return { canceled: true };
+  const zipPath = open.filePaths[0];
+
+  // Confirm before clobbering the current library. We don't peek inside the
+  // zip first because validation will reject it with a more useful error
+  // (manifest mismatch, traversal entry) than a count would convey.
+  const confirm = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: ['Cancel', 'Restore'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Replace current library?',
+    message: 'This will replace your current library with the contents of the backup.',
+    detail: 'Your existing books and metadata are renamed aside (with a `.backup-<timestamp>` suffix) so you can recover them manually if needed.',
+  });
+  if (confirm.response !== 1) return { canceled: true };
+
+  let stagingDir = null;
+  try {
+    let zip;
+    try { zip = new AdmZip(zipPath); }
+    catch (e) { return { error: `Could not read zip: ${e.message}` }; }
+    const entries = zip.getEntries();
+
+    // Quota guards against a zip bomb or accidentally selected non-backup
+    // file. Numbers are generous so a real personal library never trips
+    // them; the goal is to refuse pathological inputs before we start
+    // decompressing 1000x ratios into memory.
+    const MAX_ENTRIES = 50_000;
+    const MAX_TOTAL_UNCOMPRESSED = 50 * 1024 * 1024 * 1024; // 50 GB
+    const MAX_JSON_BYTES = 4 * 1024 * 1024;                 // 4 MB for manifest/books.json
+    if (entries.length > MAX_ENTRIES) {
+      return { error: `Backup has too many entries (${entries.length} > ${MAX_ENTRIES}).` };
+    }
+    let totalUncompressed = 0;
+    for (const e of entries) {
+      const size = (e.header && Number(e.header.size)) || 0;
+      if (size < 0) return { error: 'Backup entry has invalid size.' };
+      totalUncompressed += size;
+      if (totalUncompressed > MAX_TOTAL_UNCOMPRESSED) {
+        return { error: 'Backup uncompressed size exceeds limit (50 GB).' };
+      }
+    }
+
+    const manifestEntry = entries.find(e => e.entryName === 'manifest.json');
+    let manifest = null;
+    if (manifestEntry) {
+      if ((manifestEntry.header && Number(manifestEntry.header.size)) > MAX_JSON_BYTES) {
+        return { error: 'Backup manifest.json is unreasonably large.' };
+      }
+      try { manifest = JSON.parse(manifestEntry.getData().toString('utf8')); }
+      catch { return { error: 'Backup manifest.json is corrupt.' }; }
+    }
+    const booksJsonEntry = entries.find(e => e.entryName === 'books.json');
+    let backupMeta = null;
+    if (booksJsonEntry) {
+      if ((booksJsonEntry.header && Number(booksJsonEntry.header.size)) > MAX_JSON_BYTES) {
+        return { error: 'Backup books.json is unreasonably large.' };
+      }
+      try { backupMeta = JSON.parse(booksJsonEntry.getData().toString('utf8')); }
+      catch { return { error: 'Backup books.json is corrupt.' }; }
+    }
+    // Pull every flat file under books/ from the archive. Reject directory
+    // entries upfront — the validator only handles single basenames.
+    const fileNames = [];
+    const fileEntries = [];
+    for (const e of entries) {
+      if (!e.entryName.startsWith('books/')) continue;
+      if (e.isDirectory) continue;
+      const rel = e.entryName.slice('books/'.length);
+      fileNames.push(rel);
+      fileEntries.push(e);
+    }
+    const v = validateBackup({ manifest, meta: backupMeta, fileNames });
+    if (!v.ok) return { error: v.error };
+
+    // Stage the restore under userData so the eventual rename is same-volume
+    // and atomic. If any write fails, we abort before touching live state.
+    const userData = app.getPath('userData');
+    stagingDir = path.join(userData, `restore-staging-${Date.now()}`);
+    const stagingBooks = path.join(stagingDir, 'books');
+    fs.mkdirSync(stagingBooks, { recursive: true });
+    // extractEntryTo streams to disk instead of buffering the full
+    // decompressed file in memory via getData(). With multi-GB ebooks
+    // a single getData() call could OOM the main process even though
+    // the total-size quota above passed.
+    for (const e of fileEntries) {
+      zip.extractEntryTo(e, stagingBooks, /*maintainEntryPath*/ false, /*overwrite*/ true);
+    }
+    fs.writeFileSync(path.join(stagingDir, 'books.json'), booksJsonEntry.getData());
+
+    // Swap with rollback. The four renames are not atomic as a group, but
+    // we track which steps succeeded so a mid-sequence failure can undo
+    // them and leave the library at its original paths. If rollback
+    // itself fails, the .backup-<ts> aside files remain for manual
+    // recovery and we surface explicit instructions in the error.
+    const ts = Date.now();
+    const oldBooksAside = `${booksDir}.backup-${ts}`;
+    const oldMetaAside = `${metaFile}.backup-${ts}`;
+    const stagedBooksJson = path.join(stagingDir, 'books.json');
+    let stage = 0;
+    try {
+      if (fs.existsSync(booksDir)) { fs.renameSync(booksDir, oldBooksAside); stage = 1; }
+      if (fs.existsSync(metaFile)) { fs.renameSync(metaFile, oldMetaAside); stage = 2; }
+      fs.renameSync(stagingBooks, booksDir); stage = 3;
+      fs.renameSync(stagedBooksJson, metaFile); stage = 4;
+    } catch (swapErr) {
+      try {
+        if (stage >= 4) fs.renameSync(metaFile, stagedBooksJson);
+        if (stage >= 3) fs.renameSync(booksDir, stagingBooks);
+        if (stage >= 2) fs.renameSync(oldMetaAside, metaFile);
+        if (stage >= 1) fs.renameSync(oldBooksAside, booksDir);
+      } catch (rollbackErr) {
+        return {
+          error: `Restore swap failed (${swapErr.message}) and rollback also failed (${rollbackErr.message}). Recover manually: rename ${oldBooksAside} → ${path.basename(booksDir)} and ${oldMetaAside} → ${path.basename(metaFile)}.`,
+        };
+      }
+      return { error: `Restore swap failed: ${swapErr.message}. Library left intact.` };
+    }
+    try { fs.rmdirSync(stagingDir); } catch {}
+    stagingDir = null;
+
+    metaCache = null;
+    if (mainWindow) mainWindow.webContents.send('books:changed');
+    return { ok: true, bookCount: backupMeta.books.length };
+  } catch (e) {
+    console.error('Restore failed:', e);
+    if (stagingDir) {
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+    }
+    return { error: e.message };
   }
 });
 
