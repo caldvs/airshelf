@@ -26,7 +26,8 @@ const PORT = parseInt(process.env.PORT, 10) || 6790;
 function userDataDir(name = PRODUCT_NAME) {
   const home = os.homedir();
   if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', name);
-  if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), name);
+  if (process.platform === 'win32')
+    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), name);
   return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), name);
 }
 
@@ -72,7 +73,7 @@ function cmdUrl() {
   if (!token) {
     process.stderr.write(
       `airshelf: no server token found in ${userData}\n` +
-      `Launch Airshelf at least once so the token file is created.\n`,
+        `Launch Airshelf at least once so the token file is created.\n`,
     );
     process.exit(1);
   }
@@ -154,15 +155,18 @@ async function cmdSend(paths) {
       // and pins the original on .cause. We unwrap to give the user a
       // concrete "is Airshelf running?" instead of the opaque message.
       const code = e?.code ?? e?.cause?.code;
-      const hint = code === 'ECONNREFUSED'
-        ? `is Airshelf running on port ${PORT}?`
-        : e?.cause?.message || e?.message || String(e);
+      const hint =
+        code === 'ECONNREFUSED'
+          ? `is Airshelf running on port ${PORT}?`
+          : e?.cause?.message || e?.message || String(e);
       process.stdout.write(`${p}\terror\t${hint}\n`);
       errCount += 1;
       continue;
     }
     let payload = null;
-    try { payload = await res.json(); } catch {}
+    try {
+      payload = await res.json();
+    } catch {}
     if (res.ok && payload && payload.book) {
       process.stdout.write(`${p}\tadded\t${payload.book.id}\n`);
       okCount += 1;
@@ -196,9 +200,10 @@ async function cmdRotateToken() {
     res = await fetch(`http://127.0.0.1:${PORT}/${token}/rotate-token`, { method: 'POST' });
   } catch (e) {
     const code = e?.code ?? e?.cause?.code;
-    const hint = code === 'ECONNREFUSED'
-      ? `is Airshelf running on port ${PORT}?`
-      : e?.cause?.message || e?.message || String(e);
+    const hint =
+      code === 'ECONNREFUSED'
+        ? `is Airshelf running on port ${PORT}?`
+        : e?.cause?.message || e?.message || String(e);
     process.stderr.write(`airshelf: rotate failed — ${hint}\n`);
     process.exit(1);
   }
@@ -207,7 +212,9 @@ async function cmdRotateToken() {
     process.exit(1);
   }
   let payload;
-  try { payload = await res.json(); } catch {}
+  try {
+    payload = await res.json();
+  } catch {}
   if (!payload || !payload.url) {
     process.stderr.write(`airshelf: rotate succeeded but response was malformed\n`);
     process.exit(1);
@@ -219,31 +226,36 @@ async function cmdRotateToken() {
 function cmdHelp() {
   process.stdout.write(
     `airshelf — CLI for the Airshelf Mac app\n` +
-    `\n` +
-    `Usage:\n` +
-    `  airshelf url            print the Kindle URL (http://<lan-ip>:6790/<token>/)\n` +
-    `  airshelf list           print the library as TSV (id, title, author, size)\n` +
-    `  airshelf send <file…>   upload one or more ebooks (TSV: path<TAB>status<TAB>info)\n` +
-    `  airshelf rotate-token   generate a new server token and print the new URL\n` +
-    `  airshelf -h             this help\n` +
-    `\n` +
-    `url and list read state from\n` +
-    `  ${userDataDir()}\n` +
-    `send and rotate-token require Airshelf to be running on this machine.\n`,
+      `\n` +
+      `Usage:\n` +
+      `  airshelf url            print the Kindle URL (http://<lan-ip>:6790/<token>/)\n` +
+      `  airshelf list           print the library as TSV (id, title, author, size)\n` +
+      `  airshelf send <file…>   upload one or more ebooks (TSV: path<TAB>status<TAB>info)\n` +
+      `  airshelf rotate-token   generate a new server token and print the new URL\n` +
+      `  airshelf -h             this help\n` +
+      `\n` +
+      `url and list read state from\n` +
+      `  ${userDataDir()}\n` +
+      `send and rotate-token require Airshelf to be running on this machine.\n`,
   );
 }
 
 function main(argv) {
   const cmd = argv[2];
   switch (cmd) {
-    case 'url':  return cmdUrl();
-    case 'list': return cmdList();
-    case 'send': return cmdSend(argv.slice(3));
-    case 'rotate-token': return cmdRotateToken();
+    case 'url':
+      return cmdUrl();
+    case 'list':
+      return cmdList();
+    case 'send':
+      return cmdSend(argv.slice(3));
+    case 'rotate-token':
+      return cmdRotateToken();
     case '-h':
     case '--help':
     case 'help':
-    case undefined: return cmdHelp();
+    case undefined:
+      return cmdHelp();
     default:
       process.stderr.write(`airshelf: unknown command "${cmd}". Try \`airshelf -h\`.\n`);
       process.exit(2);

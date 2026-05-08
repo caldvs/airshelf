@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
-import {
-  DOWNLOAD_PATH_RE,
-  sanitiseBaseName,
-  prepareDownloadResponse,
-} from './route-download.js';
+import { DOWNLOAD_PATH_RE, sanitiseBaseName, prepareDownloadResponse } from './route-download.js';
 
 describe('DOWNLOAD_PATH_RE', () => {
   it('matches /download/<hex>', () => {
@@ -77,9 +73,7 @@ describe('prepareDownloadResponse', () => {
     expect(r.status).toBe(200);
     expect(r.filePath).toBe(path.join('/lib', 'abc123.azw3'));
     expect(r.headers['Content-Type']).toBe('application/octet-stream');
-    expect(r.headers['Content-Disposition']).toBe(
-      'attachment; filename="My Book.azw3"',
-    );
+    expect(r.headers['Content-Disposition']).toBe('attachment; filename="My Book.azw3"');
   });
 
   it('sanitises filename characters that would break Content-Disposition', () => {

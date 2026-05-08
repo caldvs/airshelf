@@ -24,7 +24,9 @@ describe('mapWithConcurrency', () => {
 
   it('handles fewer items than limit without spawning idle workers', async () => {
     let starts = 0;
-    await mapWithConcurrency([1, 2], 5, async () => { starts++; });
+    await mapWithConcurrency([1, 2], 5, async () => {
+      starts++;
+    });
     expect(starts).toBe(2);
   });
 
@@ -34,10 +36,12 @@ describe('mapWithConcurrency', () => {
   });
 
   it('propagates errors from the mapper (Promise.all semantics)', async () => {
-    await expect(mapWithConcurrency([1, 2, 3], 2, async (x) => {
-      if (x === 2) throw new Error('boom');
-      return x;
-    })).rejects.toThrow('boom');
+    await expect(
+      mapWithConcurrency([1, 2, 3], 2, async (x) => {
+        if (x === 2) throw new Error('boom');
+        return x;
+      }),
+    ).rejects.toThrow('boom');
   });
 
   it('treats limit < 1 as 1 (no division by zero, no infinite spawn)', async () => {
@@ -54,7 +58,7 @@ describe('createSerialQueue', () => {
       queue(async () => {
         await sleep(ms);
         order.push(i);
-      })
+      }),
     );
     await Promise.all(tasks);
     // Despite the middle task being fastest, FIFO order is preserved.
@@ -69,16 +73,28 @@ describe('createSerialQueue', () => {
 
   it('propagates rejections to the caller', async () => {
     const queue = createSerialQueue();
-    await expect(queue(async () => { throw new Error('nope'); })).rejects.toThrow('nope');
+    await expect(
+      queue(async () => {
+        throw new Error('nope');
+      }),
+    ).rejects.toThrow('nope');
   });
 
   it('keeps processing later tasks even after a rejection', async () => {
     const queue = createSerialQueue();
     const errors = [];
     const results = [];
-    const t1 = queue(async () => { throw new Error('first'); }).catch((e) => errors.push(e.message));
-    const t2 = queue(async () => { results.push('second'); return 'second'; });
-    const t3 = queue(async () => { results.push('third'); return 'third'; });
+    const t1 = queue(async () => {
+      throw new Error('first');
+    }).catch((e) => errors.push(e.message));
+    const t2 = queue(async () => {
+      results.push('second');
+      return 'second';
+    });
+    const t3 = queue(async () => {
+      results.push('third');
+      return 'third';
+    });
     await Promise.all([t1, t2, t3]);
     expect(errors).toEqual(['first']);
     expect(results).toEqual(['second', 'third']);

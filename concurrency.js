@@ -11,13 +11,15 @@ async function mapWithConcurrency(items, limit, mapper) {
   const workerCount = Math.max(1, Math.min(limit, items.length));
   const workers = [];
   for (let w = 0; w < workerCount; w++) {
-    workers.push((async () => {
-      while (true) {
-        const i = cursor++;
-        if (i >= items.length) return;
-        results[i] = await mapper(items[i], i);
-      }
-    })());
+    workers.push(
+      (async () => {
+        while (true) {
+          const i = cursor++;
+          if (i >= items.length) return;
+          results[i] = await mapper(items[i], i);
+        }
+      })(),
+    );
   }
   await Promise.all(workers);
   return results;

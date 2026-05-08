@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  parsePairPath,
-  buildPairCookie,
-  handlePairRequest,
-} from './route-pair.js';
+import { parsePairPath, buildPairCookie, handlePairRequest } from './route-pair.js';
 
 describe('PAIR_PATH_RE / parsePairPath', () => {
   it('matches /pair/<code>', () => {
@@ -60,11 +56,13 @@ function makeStore({ consumeReturns = false } = {}) {
 describe('handlePairRequest', () => {
   it('returns null for non-pair paths', () => {
     const store = makeStore();
-    expect(handlePairRequest({
-      pathname: '/abcdef/',
-      pairStore: store,
-      serverToken: 'badera',
-    })).toBeNull();
+    expect(
+      handlePairRequest({
+        pathname: '/abcdef/',
+        pairStore: store,
+        serverToken: 'badera',
+      }),
+    ).toBeNull();
     // Should not have probed the store.
     expect(store.calls).toEqual([]);
   });

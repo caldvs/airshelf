@@ -8,7 +8,11 @@
 // ("The Hobbit" vs "the hobbit:" vs "The Hobbit, An Unexpected Journey").
 function titlesMatch(a, b) {
   const norm = (s) =>
-    String(s).toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+    String(s)
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   const na = norm(a);
   const nb = norm(b);
   if (!na || !nb) return false;
@@ -94,7 +98,7 @@ function guessAuthorFromFilename(raw) {
   if (!raw) return null;
   const stripped = String(raw).replace(
     /\.(epub|mobi|azw3?|prc|pdf|txt|fb2|lit|lrf|pdb|rtf|docx|odt|html?)$/i,
-    ''
+    '',
   );
   const parts = stripped.split(/\s+--?\s+/);
   if (parts.length >= 2) {

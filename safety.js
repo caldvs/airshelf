@@ -17,22 +17,22 @@ function inV4Range(ip, cidr) {
 }
 
 const PRIVATE_V4 = [
-  '0.0.0.0/8',          // "this network"
-  '10.0.0.0/8',         // RFC1918
-  '100.64.0.0/10',      // CGNAT
-  '127.0.0.0/8',        // loopback
-  '169.254.0.0/16',     // link-local
-  '172.16.0.0/12',      // RFC1918
-  '192.0.0.0/24',       // IETF protocol assignments
-  '192.168.0.0/16',     // RFC1918
-  '198.18.0.0/15',      // benchmarking
-  '224.0.0.0/4',        // multicast
-  '240.0.0.0/4',        // reserved
+  '0.0.0.0/8', // "this network"
+  '10.0.0.0/8', // RFC1918
+  '100.64.0.0/10', // CGNAT
+  '127.0.0.0/8', // loopback
+  '169.254.0.0/16', // link-local
+  '172.16.0.0/12', // RFC1918
+  '192.0.0.0/24', // IETF protocol assignments
+  '192.168.0.0/16', // RFC1918
+  '198.18.0.0/15', // benchmarking
+  '224.0.0.0/4', // multicast
+  '240.0.0.0/4', // reserved
   '255.255.255.255/32', // broadcast
 ];
 
 function isPrivateIpv4(ip) {
-  return PRIVATE_V4.some(cidr => inV4Range(ip, cidr));
+  return PRIVATE_V4.some((cidr) => inV4Range(ip, cidr));
 }
 
 // Parse any valid IPv6 string into an 8-group array of 16-bit ints.
@@ -56,16 +56,20 @@ function parseIpv6(s) {
     if (!last || !last.includes('.')) return arr;
     if (!net.isIPv4(last)) return null;
     const [a, b, c, d] = last.split('.').map(Number);
-    return [...arr.slice(0, -1),
+    return [
+      ...arr.slice(0, -1),
       (((a << 8) | b) >>> 0).toString(16),
-      (((c << 8) | d) >>> 0).toString(16)];
+      (((c << 8) | d) >>> 0).toString(16),
+    ];
   };
-  if (tail.length) tail = decodeTrailingV4(tail); else head = decodeTrailingV4(head);
+  if (tail.length) tail = decodeTrailingV4(tail);
+  else head = decodeTrailingV4(head);
   if (head === null || tail === null) return null;
   const fill = 8 - head.length - tail.length;
   if (fill < 0) return null;
-  const groups = [...head, ...Array(fill).fill('0'), ...tail].map(g => parseInt(g, 16));
-  if (groups.length !== 8 || groups.some(g => Number.isNaN(g) || g < 0 || g > 0xffff)) return null;
+  const groups = [...head, ...Array(fill).fill('0'), ...tail].map((g) => parseInt(g, 16));
+  if (groups.length !== 8 || groups.some((g) => Number.isNaN(g) || g < 0 || g > 0xffff))
+    return null;
   return groups;
 }
 
@@ -73,13 +77,24 @@ function isPrivateIpv6(ip) {
   const g = parseIpv6(ip);
   if (!g) return false;
   // :: (unspecified) and ::1 (loopback)
-  if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 &&
-      g[4] === 0 && g[5] === 0 && g[6] === 0 && (g[7] === 0 || g[7] === 1)) return true;
+  if (
+    g[0] === 0 &&
+    g[1] === 0 &&
+    g[2] === 0 &&
+    g[3] === 0 &&
+    g[4] === 0 &&
+    g[5] === 0 &&
+    g[6] === 0 &&
+    (g[7] === 0 || g[7] === 1)
+  )
+    return true;
   // ::ffff:0:0/96 — IPv4-mapped. Decode and re-check via the v4 ranges so
   // hex-form spoofs like ::ffff:7f00:1 (= 127.0.0.1) can't sneak through.
   if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0xffff) {
-    const a = (g[6] >> 8) & 0xff, b = g[6] & 0xff;
-    const c = (g[7] >> 8) & 0xff, d = g[7] & 0xff;
+    const a = (g[6] >> 8) & 0xff,
+      b = g[6] & 0xff;
+    const c = (g[7] >> 8) & 0xff,
+      d = g[7] & 0xff;
     return isPrivateIpv4(`${a}.${b}.${c}.${d}`);
   }
   // fe80::/10 (link-local). First 10 bits = 1111111010, so first hextet
@@ -113,7 +128,11 @@ const INTERNAL_HOST_SUFFIXES = ['.localhost', '.local'];
 // threat model grows.
 async function assertExternalUrl(input, { lookup = dns.lookup } = {}) {
   let parsed;
-  try { parsed = new URL(input); } catch { throw new Error('Invalid URL.'); }
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error('Invalid URL.');
+  }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('URL must be http(s).');
   }
@@ -126,7 +145,7 @@ async function assertExternalUrl(input, { lookup = dns.lookup } = {}) {
   }
   const lcHost = host.toLowerCase();
   if (lcHost === 'localhost') throw new Error('Refusing to fetch from internal address.');
-  if (INTERNAL_HOST_SUFFIXES.some(s => lcHost.endsWith(s))) {
+  if (INTERNAL_HOST_SUFFIXES.some((s) => lcHost.endsWith(s))) {
     throw new Error('Refusing to fetch from internal address.');
   }
 

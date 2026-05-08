@@ -27,8 +27,7 @@ describe('buildSearchVariants', () => {
   });
 
   it('adds a colon-prefix variant when the cleaned title contains a colon', () => {
-    expect(buildSearchVariants('Sapiens: A Brief History of Humankind'))
-      .toContain('Sapiens');
+    expect(buildSearchVariants('Sapiens: A Brief History of Humankind')).toContain('Sapiens');
   });
 
   it('falls back to the raw title alongside the cleaned one', () => {
@@ -84,10 +83,10 @@ describe('pickBestDoc', () => {
 
   it('returns the highest-scoring doc', () => {
     const docs = [
-      { title: 'A', language: ['fre'] },                  // 0
-      { title: 'B', language: ['eng'] },                  // 2
-      { title: 'C', language: ['eng'], cover_i: 1 },      // 3
-      { title: 'D', language: ['fre'], cover_i: 1 },      // 1
+      { title: 'A', language: ['fre'] }, // 0
+      { title: 'B', language: ['eng'] }, // 2
+      { title: 'C', language: ['eng'], cover_i: 1 }, // 3
+      { title: 'D', language: ['fre'], cover_i: 1 }, // 1
     ];
     expect(pickBestDoc(docs).title).toBe('C');
   });
@@ -150,9 +149,11 @@ describe('parseDescription', () => {
   });
 
   it('returns the .value when description is the typed object form', () => {
-    expect(parseDescription({
-      description: { type: '/type/text', value: 'A novel.' },
-    })).toBe('A novel.');
+    expect(
+      parseDescription({
+        description: { type: '/type/text', value: 'A novel.' },
+      }),
+    ).toBe('A novel.');
   });
 
   it('returns null for unrecognised shapes', () => {
@@ -183,15 +184,18 @@ function mockBytes(byteLength) {
 describe('searchOpenLibrary', () => {
   it('returns null for empty title without hitting the network', async () => {
     let calls = 0;
-    const fetchFn = async () => { calls++; return mockOk({ docs: [] }); };
+    const fetchFn = async () => {
+      calls++;
+      return mockOk({ docs: [] });
+    };
     expect(await searchOpenLibrary('', null, { fetch: fetchFn })).toBeNull();
     expect(calls).toBe(0);
   });
 
   it('returns the best-scoring doc across docs returned by the first variant', async () => {
     const docs = [
-      { title: 'mid', language: ['eng'] },                  // 2
-      { title: 'top', language: ['eng'], cover_i: 1 },       // 3 — short-circuit hit
+      { title: 'mid', language: ['eng'] }, // 2
+      { title: 'top', language: ['eng'], cover_i: 1 }, // 3 — short-circuit hit
     ];
     const fetchFn = async () => mockOk({ docs });
     const result = await searchOpenLibrary('Foo', null, { fetch: fetchFn });
@@ -212,7 +216,9 @@ describe('searchOpenLibrary', () => {
   });
 
   it('returns null when every variant fails', async () => {
-    const fetchFn = async () => { throw new Error('network'); };
+    const fetchFn = async () => {
+      throw new Error('network');
+    };
     expect(await searchOpenLibrary('Foo', null, { fetch: fetchFn })).toBeNull();
   });
 });
@@ -220,7 +226,10 @@ describe('searchOpenLibrary', () => {
 describe('downloadOpenLibraryCover', () => {
   it('returns false for null doc without hitting the network', async () => {
     let calls = 0;
-    const fetchFn = async () => { calls++; return mockBytes(2000); };
+    const fetchFn = async () => {
+      calls++;
+      return mockBytes(2000);
+    };
     expect(await downloadOpenLibraryCover(null, '/tmp/x', { fetch: fetchFn })).toBe(false);
     expect(calls).toBe(0);
   });
@@ -228,11 +237,13 @@ describe('downloadOpenLibraryCover', () => {
   it('writes the cover and returns true when a real image is fetched', async () => {
     const fetchFn = async () => mockBytes(5000);
     let written = null;
-    const writeFile = (p, b) => { written = { path: p, size: b.length }; };
-    const ok = await downloadOpenLibraryCover(
-      { cover_i: 42 }, '/tmp/cover.jpg',
-      { fetch: fetchFn, writeFile },
-    );
+    const writeFile = (p, b) => {
+      written = { path: p, size: b.length };
+    };
+    const ok = await downloadOpenLibraryCover({ cover_i: 42 }, '/tmp/cover.jpg', {
+      fetch: fetchFn,
+      writeFile,
+    });
     expect(ok).toBe(true);
     expect(written).toEqual({ path: '/tmp/cover.jpg', size: 5000 });
   });
@@ -240,11 +251,13 @@ describe('downloadOpenLibraryCover', () => {
   it(`filters out placeholder responses (< ${COVER_PLACEHOLDER_BYTES} bytes)`, async () => {
     const fetchFn = async () => mockBytes(COVER_PLACEHOLDER_BYTES - 1);
     let written = false;
-    const writeFile = () => { written = true; };
-    const ok = await downloadOpenLibraryCover(
-      { cover_i: 42 }, '/tmp/cover.jpg',
-      { fetch: fetchFn, writeFile },
-    );
+    const writeFile = () => {
+      written = true;
+    };
+    const ok = await downloadOpenLibraryCover({ cover_i: 42 }, '/tmp/cover.jpg', {
+      fetch: fetchFn,
+      writeFile,
+    });
     expect(ok).toBe(false);
     expect(written).toBe(false);
   });
@@ -257,7 +270,9 @@ describe('downloadOpenLibraryCover', () => {
       return mockBytes(5000);
     };
     let written = false;
-    const writeFile = () => { written = true; };
+    const writeFile = () => {
+      written = true;
+    };
     const ok = await downloadOpenLibraryCover(
       { cover_i: 42, isbn: ['9780000000001'] },
       '/tmp/cover.jpg',
@@ -272,34 +287,44 @@ describe('downloadOpenLibraryCover', () => {
 describe('fetchOpenLibraryDescription', () => {
   it('returns null for a doc without a key', async () => {
     let calls = 0;
-    const fetchFn = async () => { calls++; return mockOk({}); };
+    const fetchFn = async () => {
+      calls++;
+      return mockOk({});
+    };
     expect(await fetchOpenLibraryDescription({}, { fetch: fetchFn })).toBeNull();
     expect(calls).toBe(0);
   });
 
   it('returns the description when present', async () => {
     const fetchFn = async () => mockOk({ description: 'A novel.' });
-    expect(await fetchOpenLibraryDescription({ key: '/works/OL1W' }, { fetch: fetchFn }))
-      .toBe('A novel.');
+    expect(await fetchOpenLibraryDescription({ key: '/works/OL1W' }, { fetch: fetchFn })).toBe(
+      'A novel.',
+    );
   });
 
   it('handles the typed-object description shape', async () => {
-    const fetchFn = async () => mockOk({
-      description: { type: '/type/text', value: 'Typed.' },
-    });
-    expect(await fetchOpenLibraryDescription({ key: '/works/OL1W' }, { fetch: fetchFn }))
-      .toBe('Typed.');
+    const fetchFn = async () =>
+      mockOk({
+        description: { type: '/type/text', value: 'Typed.' },
+      });
+    expect(await fetchOpenLibraryDescription({ key: '/works/OL1W' }, { fetch: fetchFn })).toBe(
+      'Typed.',
+    );
   });
 
   it('returns null on a non-ok response', async () => {
     const fetchFn = async () => ({ ok: false });
-    expect(await fetchOpenLibraryDescription({ key: '/works/OL1W' }, { fetch: fetchFn }))
-      .toBeNull();
+    expect(
+      await fetchOpenLibraryDescription({ key: '/works/OL1W' }, { fetch: fetchFn }),
+    ).toBeNull();
   });
 
   it('returns null on a network error', async () => {
-    const fetchFn = async () => { throw new Error('network'); };
-    expect(await fetchOpenLibraryDescription({ key: '/works/OL1W' }, { fetch: fetchFn }))
-      .toBeNull();
+    const fetchFn = async () => {
+      throw new Error('network');
+    };
+    expect(
+      await fetchOpenLibraryDescription({ key: '/works/OL1W' }, { fetch: fetchFn }),
+    ).toBeNull();
   });
 });

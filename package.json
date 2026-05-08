@@ -13,6 +13,7 @@
     "start": "electron .",
     "prebuild": "npm run compile",
     "build": "electron-builder --mac",
+    "postbuild": "npm rebuild better-sqlite3",
     "pretest": "npm run compile",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

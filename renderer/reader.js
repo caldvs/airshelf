@@ -56,7 +56,9 @@
     document.body.classList.toggle('reader-light', name === 'light');
     if (themeBtn) themeBtn.setAttribute('aria-pressed', String(name === 'dark'));
     if (rendition) {
-      try { rendition.themes.select(name); } catch (_) {}
+      try {
+        rendition.themes.select(name);
+      } catch (_) {}
     }
   }
 
@@ -73,7 +75,9 @@
     const clamped = Math.max(FONT_MIN, Math.min(FONT_MAX, pct));
     localStorage.setItem(FONT_KEY, String(clamped));
     if (rendition) {
-      try { rendition.themes.fontSize(`${clamped}%`); } catch (_) {}
+      try {
+        rendition.themes.fontSize(`${clamped}%`);
+      } catch (_) {}
     }
   }
 
@@ -108,11 +112,15 @@
 
     // Tear down any previous rendition before swapping books.
     if (rendition) {
-      try { rendition.destroy(); } catch (_) {}
+      try {
+        rendition.destroy();
+      } catch (_) {}
       rendition = null;
     }
     if (book) {
-      try { book.destroy(); } catch (_) {}
+      try {
+        book.destroy();
+      } catch (_) {}
       book = null;
     }
     viewportEl.innerHTML = '';
@@ -148,9 +156,9 @@
     });
 
     rendition.themes.default({
-      'body': { 'padding': '0 !important' },
-      'p': { 'line-height': '1.6 !important' },
-      'img': { 'max-width': '100% !important', 'height': 'auto !important' },
+      body: { padding: '0 !important' },
+      p: { 'line-height': '1.6 !important' },
+      img: { 'max-width': '100% !important', height: 'auto !important' },
     });
     rendition.themes.register('light', READER_THEMES.light);
     rendition.themes.register('dark', READER_THEMES.dark);
@@ -163,7 +171,9 @@
       console.log('[reader] displayed');
     } catch (e) {
       console.error('[reader] display failed', e);
-      try { await rendition.display(); } catch (_) {}
+      try {
+        await rendition.display();
+      } catch (_) {}
     }
     rendition.on('rendered', (section) => {
       console.log('[reader] rendered section', section && section.href);
@@ -200,8 +210,18 @@
   }
 
   function closeReader() {
-    if (rendition) { try { rendition.destroy(); } catch (_) {} rendition = null; }
-    if (book) { try { book.destroy(); } catch (_) {} book = null; }
+    if (rendition) {
+      try {
+        rendition.destroy();
+      } catch (_) {}
+      rendition = null;
+    }
+    if (book) {
+      try {
+        book.destroy();
+      } catch (_) {}
+      book = null;
+    }
     viewportEl.innerHTML = '';
     readerEl.classList.remove('active');
     currentBookId = null;
@@ -301,7 +321,9 @@
     if (!rendition) return;
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      try { rendition.resize(); } catch (_) {}
+      try {
+        rendition.resize();
+      } catch (_) {}
     }, 150);
   });
 
