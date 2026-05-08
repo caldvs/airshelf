@@ -126,11 +126,12 @@ describe('rotateServerToken', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('replaces an existing token with a freshly-generated valid one', () => {
+  it('replaces an existing token with a freshly-generated different one', () => {
     const a = loadOrCreateServerToken(dir);
     const b = rotateServerToken(dir);
     expect(b).toMatch(TOKEN_RE);
-    expect(b).not.toBe(a); // overwhelmingly likely; ~1/1.16M chance of collision
+    // Guaranteed by the rotate() bounded-retry loop, not statistical.
+    expect(b).not.toBe(a);
     const onDisk = fs.readFileSync(path.join(dir, 'server-token'), 'utf8').trim();
     expect(onDisk).toBe(b);
   });

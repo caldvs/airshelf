@@ -1405,8 +1405,10 @@ function startServer() {
           return;
         }
         serverToken = next;
-        const ip = getLocalIP();
-        const newUrl = `http://${ip}:${PORT}/${next}/`;
+        // `ip` in the enclosing scope is the *remote* client IP for rate
+        // limiting; rename here so future readers don't conflate the two.
+        const localIp = getLocalIP();
+        const newUrl = `http://${localIp}:${PORT}/${next}/`;
         if (mainWindow) mainWindow.webContents.send('server:tokenRotated', { token: next, url: newUrl });
         res.writeHead(200, {
           'Content-Type': 'application/json; charset=utf-8',

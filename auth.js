@@ -68,7 +68,21 @@ function loadOrCreateServerToken(userData) {
 // they delete the file.
 function rotateServerToken(userData) {
   const tokenFile = path.join(userData, 'server-token');
-  const t = generatePronounceableToken();
+  // Read the current token (if any) so we can guarantee the rotation
+  // actually rotates. Token entropy is ~20 bits, so a same-token redraw
+  // would happen ~1 in 1.16M rotations — rare but real, and a "rotation"
+  // that returns the same value is silently a no-op for the user.
+  let current = null;
+  try {
+    const raw = fs.readFileSync(tokenFile, 'utf8').trim();
+    if (TOKEN_RE.test(raw)) current = raw;
+  } catch {}
+  // Bounded retry: collision odds are vanishing, but cap so a broken RNG
+  // can't spin forever.
+  let t = generatePronounceableToken();
+  for (let attempt = 0; attempt < 8 && t === current; attempt++) {
+    t = generatePronounceableToken();
+  }
   writeTokenAtomic(tokenFile, t);
   return t;
 }
