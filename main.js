@@ -268,6 +268,7 @@ const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./s
 const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
 const { authoriseRequest } = require('./route-auth.js');
+const { handleCoverRequest } = require('./route-cover.js');
 const authLimiter = new FailedAuthLimiter();
 
 let mainWindow = null;
@@ -1274,42 +1275,21 @@ function startServer() {
         res.end(renderIndexHtml());
         return;
       }
-      const coverMatch = subPath.match(/^\/cover\/([a-f0-9]+)$/);
-      if (coverMatch) {
-        const id = coverMatch[1];
-        const book = listBooks().find(b => b.id === id);
-        if (!book || !book.cover) { res.writeHead(404); res.end('No cover'); return; }
-        const coverPath = path.join(booksDir, book.cover);
-        if (!fs.existsSync(coverPath)) { res.writeHead(404); res.end('Missing'); return; }
-        const stat = fs.statSync(coverPath);
-        const etag = `"${id}-${stat.size}-${Math.floor(stat.mtimeMs)}"`;
-        const lastModified = stat.mtime.toUTCString();
-
-        // 304 if the client already has it
-        if (req.headers['if-none-match'] === etag ||
-            req.headers['if-modified-since'] === lastModified) {
-          res.writeHead(304, {
-            'ETag': etag,
-            'Cache-Control': 'public, max-age=2592000, immutable',
-          });
+      const coverDecision = handleCoverRequest({
+        subPath,
+        books: listBooks(),
+        booksDir,
+        ifNoneMatch: req.headers['if-none-match'],
+        ifModifiedSince: req.headers['if-modified-since'],
+      });
+      if (coverDecision) {
+        if (coverDecision.body !== undefined) {
+          res.writeHead(coverDecision.status, coverDecision.headers || {});
+          res.end(coverDecision.body);
+        } else {
+          res.writeHead(coverDecision.status, coverDecision.headers || {});
           res.end();
-          return;
         }
-
-        const buf = fs.readFileSync(coverPath);
-        // sniff image type
-        let type = 'image/jpeg';
-        if (buf[0] === 0x89 && buf[1] === 0x50) type = 'image/png';
-        else if (buf[0] === 0x47 && buf[1] === 0x49) type = 'image/gif';
-        res.writeHead(200, {
-          'Content-Type': type,
-          'Content-Length': buf.length,
-          'Cache-Control': 'public, max-age=2592000, immutable',
-          'ETag': etag,
-          'Last-Modified': lastModified,
-          'Expires': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toUTCString(),
-        });
-        res.end(buf);
         return;
       }
       // Match Bookify's URL pattern: /download/<id> with no extension.
