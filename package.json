@@ -62,7 +62,6 @@
       "main.js",
       "preload.js",
       "inject-asin.js",
-      "pair.js",
       "out/**/*",
       "backup.js",
       "calibre.js",

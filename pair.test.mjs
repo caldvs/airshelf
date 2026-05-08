@@ -5,7 +5,7 @@ import {
   PAIR_CODE_RE,
   generatePairCode,
   PairCodeStore,
-} from './pair.js';
+} from './out/domain/pair.js';
 
 describe('generatePairCode', () => {
   it('produces a code of the expected length and alphabet', () => {
