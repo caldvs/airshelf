@@ -136,6 +136,19 @@ function renderBooks(books, opts = {}) {
         card.append(yr);
       }
 
+      // Series badge — small, italic, sits between the author/year and the
+      // size line. We only render when the series field is non-null;
+      // seriesIndex is optional ("Boxed Set" rows still match nothing today
+      // but a future relaxed regex might extract series without an index).
+      if (b.series) {
+        const seriesEl = document.createElement('div');
+        seriesEl.className = 'book-series';
+        seriesEl.textContent = b.seriesIndex != null
+          ? `${b.series} #${b.seriesIndex}`
+          : b.series;
+        card.append(seriesEl);
+      }
+
       const size = document.createElement('div');
       size.className = 'book-size';
       const convertedLabel = b.converted ? ` · ${b.sourceExt.toUpperCase()}→AZW3` : '';
@@ -318,14 +331,15 @@ window.addEventListener('drop', async (e) => {
 });
 
 // ---- Transfer view ----
+const pairUrlEl = document.getElementById('pair-url');
+const pairBareUrlEl = document.getElementById('pair-bare-url');
+const pairTtlEl = document.getElementById('pair-ttl');
+const pairRotateBtn = document.getElementById('pair-rotate');
 const serverUrlFallbackEl = document.getElementById('server-url-fallback');
 const urlFallbackEl = document.getElementById('url-fallback');
 
 async function loadServerInfo() {
   const info = await window.airshelf.serverInfo();
-  // Prefer the mDNS hostname URL — the Kindle doesn't have to type a DHCP
-  // IP that drifts across reconnects. Some Kindle firmwares can't resolve
-  // .local, so the IP-based URL is shown as a fallback below.
   if (info.mdnsUrl) {
     serverUrlEl.textContent = info.mdnsUrl;
     serverUrlFallbackEl.textContent = info.url;
@@ -335,11 +349,29 @@ async function loadServerInfo() {
     serverUrlFallbackEl.textContent = '';
     urlFallbackEl.classList.add('hidden');
   }
+  // Bare URL the user can bookmark on their Kindle once paired — derived
+  // from the IP host because the pairing cookie is host-only.
+  if (pairBareUrlEl) pairBareUrlEl.textContent = `http://${info.ip}:${info.port}/`;
+}
+
+// JS catch can receive any thrown value, not only Error/DOMException; reading
+// .message on a non-Error throws "Cannot read properties of …" and the toast
+// itself fails. errMsg() falls back to String() so the UI always renders.
+function errMsg(e) {
+  return (e && typeof e === 'object' && 'message' in e ? e.message : null) ?? String(e);
+}
+
+async function copyToClipboard(text, successMsg) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(successMsg, 'success');
+  } catch (e) {
+    showToast(`Copy failed: ${errMsg(e)}`, 'error');
+  }
 }
 
 document.getElementById('btn-copy').addEventListener('click', () => {
-  navigator.clipboard.writeText(serverUrlEl.textContent);
-  showToast('Copied', 'success');
+  copyToClipboard(serverUrlEl.textContent, 'Copied');
 });
 
 // ---- Backup / restore ----
@@ -390,6 +422,66 @@ if (btnRestore) {
       setBusy(null);
       btnRestore.disabled = false;
     }
+  });
+}
+// ---- Pair code (#34) ----
+//
+// We render the pair URL alongside the existing /<token>/ URL: the pair
+// flow doesn't replace it (cookies are a per-device convenience), it
+// just gives the user a shorter URL for first-time setup. The TTL ticks
+// down once a second; when it hits zero we issue a fresh code so the
+// user always has a usable code on screen.
+
+let pairTtlTimer = null;
+let pairCurrentExpiresAt = 0;
+
+async function refreshPairCode({ forceRotate = false } = {}) {
+  // If the Send view markup ever loses these ids (or in a future test
+  // harness without the DOM), bail rather than null-deref'ing.
+  if (!pairUrlEl || !pairTtlEl) return;
+  let info;
+  try {
+    info = forceRotate
+      ? await window.airshelf.pairRotate()
+      : await window.airshelf.pairCurrent();
+  } catch (e) {
+    if (pairTtlTimer) clearInterval(pairTtlTimer);
+    pairTtlTimer = null;
+    pairCurrentExpiresAt = 0;
+    pairUrlEl.textContent = 'pair unavailable';
+    pairTtlEl.textContent = '';
+    showToast(`Pair code failed: ${errMsg(e)}`, 'error');
+    return;
+  }
+  pairUrlEl.textContent = info.pairUrl;
+  pairCurrentExpiresAt = info.expiresAt;
+  startPairTtlTimer();
+}
+
+function startPairTtlTimer() {
+  if (pairTtlTimer) clearInterval(pairTtlTimer);
+  const tick = () => {
+    const remaining = Math.max(0, Math.floor((pairCurrentExpiresAt - Date.now()) / 1000));
+    pairTtlEl.textContent = remaining > 0 ? `${remaining}s` : 'expired';
+    // When the code expires the renderer asks main for a fresh one. The
+    // server already sweeps expired entries, so this just resyncs UI with
+    // the next-issued code.
+    if (remaining === 0) {
+      clearInterval(pairTtlTimer);
+      pairTtlTimer = null;
+      refreshPairCode();
+    }
+  };
+  tick();
+  pairTtlTimer = setInterval(tick, 1000);
+}
+
+if (pairRotateBtn) {
+  pairRotateBtn.addEventListener('click', () => refreshPairCode({ forceRotate: true }));
+}
+if (pairUrlEl) {
+  pairUrlEl.addEventListener('click', () => {
+    copyToClipboard(pairUrlEl.textContent, 'Pair URL copied');
   });
 }
 
@@ -683,4 +775,5 @@ document.getElementById('calibre-get').addEventListener('click', openCalibreDown
 refresh();
 loadServerInfo();
 setInterval(loadServerInfo, 5000);
+refreshPairCode();
 refreshCalibreStatus();
