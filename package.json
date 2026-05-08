@@ -62,7 +62,6 @@
       "main.js",
       "preload.js",
       "out/**/*",
-      "openlibrary.js",
       "route-auth.js",
       "route-cover.js",
       "route-index.js",

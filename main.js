@@ -561,7 +561,7 @@ const {
   searchOpenLibrary,
   downloadOpenLibraryCover,
   fetchOpenLibraryDescription,
-} = require('./openlibrary.js');
+} = require('./out/integrations/openlibrary.js');
 
 // `displayName` lets the /upload route preserve the user's filename for
 // title/author fallback even though the actual srcPath is a randomised
