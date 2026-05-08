@@ -1354,6 +1354,14 @@ function startServer() {
           res.end('Invalid or missing X-Filename header.');
           return;
         }
+        // Reject by extension before streaming the body. addBook checks the
+        // same allowlist, but only after we'd have written up to MAX_UPLOAD_BYTES
+        // to disk — wasteful for an obviously unsupported file.
+        if (!SUPPORTED_EXTS.includes(path.extname(filename).toLowerCase())) {
+          res.writeHead(415, { 'Content-Type': 'text/plain' });
+          res.end('Unsupported file format.');
+          return;
+        }
         const declaredLength = parseInt(req.headers['content-length'], 10);
         const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
         if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
