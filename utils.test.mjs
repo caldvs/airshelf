@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { humanSize, escapeHtml } from './utils.js';
+import { humanSize, escapeHtml } from './lib/utils.js';
 
 describe('humanSize', () => {
   it('renders bytes under 1KiB as plain bytes', () => {

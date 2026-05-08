@@ -65,7 +65,6 @@
       "pair.js",
       "safety.js",
       "lib/**/*",
-      "utils.js",
       "backup.js",
       "calibre.js",
       "openlibrary.js",
