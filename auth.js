@@ -29,7 +29,7 @@ const TOKEN_RE = /^[a-z]{6}$/;
 function generatePronounceableToken() {
   let out = '';
   for (let i = 0; i < 6; i++) {
-    const pool = (i % 2 === 0) ? CONSONANTS : VOWELS;
+    const pool = i % 2 === 0 ? CONSONANTS : VOWELS;
     const limit = Math.floor(256 / pool.length) * pool.length;
     let idx;
     do {
@@ -51,7 +51,9 @@ function loadOrCreateServerToken(userData) {
       // The mode arg on writeFileSync only applies on create, so a file
       // created earlier with looser perms (e.g. by an older version that
       // forgot the mode) would stay loose. chmod every load to be sure.
-      try { fs.chmodSync(tokenFile, 0o600); } catch {}
+      try {
+        fs.chmodSync(tokenFile, 0o600);
+      } catch {}
       return t;
     }
     // Old format (e.g. legacy 32-hex) — regenerate.
@@ -90,7 +92,9 @@ function rotateServerToken(userData) {
 function writeTokenAtomic(tokenFile, token) {
   const tmp = `${tokenFile}.tmp`;
   fs.writeFileSync(tmp, token, { mode: 0o600 });
-  try { fs.chmodSync(tmp, 0o600); } catch {}
+  try {
+    fs.chmodSync(tmp, 0o600);
+  } catch {}
   fs.renameSync(tmp, tokenFile);
 }
 
@@ -103,7 +107,7 @@ class FailedAuthLimiter {
     this.windowMs = windowMs;
     this.maxFails = maxFails;
     this.blockMs = blockMs;
-    this.fails = new Map();   // ip → [timestamp, ...]
+    this.fails = new Map(); // ip → [timestamp, ...]
     this.blocked = new Map(); // ip → blockUntil ts
   }
 
@@ -120,7 +124,7 @@ class FailedAuthLimiter {
 
   recordFail(ip, now = Date.now()) {
     if (this.isBlocked(ip, now)) return;
-    const arr = (this.fails.get(ip) || []).filter(ts => ts > now - this.windowMs);
+    const arr = (this.fails.get(ip) || []).filter((ts) => ts > now - this.windowMs);
     arr.push(now);
     this.fails.set(ip, arr);
     if (arr.length >= this.maxFails) {

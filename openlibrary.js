@@ -72,7 +72,8 @@ function buildCoverAttemptUrls(doc) {
   const out = [];
   if (doc.cover_i) out.push(`${COVER_BASE}/id/${doc.cover_i}-L.jpg`);
   if (doc.isbn && doc.isbn[0]) out.push(`${COVER_BASE}/isbn/${doc.isbn[0]}-L.jpg`);
-  if (doc.edition_key && doc.edition_key[0]) out.push(`${COVER_BASE}/olid/${doc.edition_key[0]}-L.jpg`);
+  if (doc.edition_key && doc.edition_key[0])
+    out.push(`${COVER_BASE}/olid/${doc.edition_key[0]}-L.jpg`);
   return out;
 }
 

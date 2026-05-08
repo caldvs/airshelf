@@ -28,8 +28,7 @@ function buildExthRecord(type, data) {
 function findMobiHeaders(buf) {
   const headers = [];
   for (let i = 0; i + 4 <= buf.length; i++) {
-    if (buf[i] === 0x4d && buf[i + 1] === 0x4f &&
-        buf[i + 2] === 0x42 && buf[i + 3] === 0x49) {
+    if (buf[i] === 0x4d && buf[i + 1] === 0x4f && buf[i + 2] === 0x42 && buf[i + 3] === 0x49) {
       headers.push(i);
     }
   }
@@ -41,8 +40,10 @@ function findMobiHeaders(buf) {
 function rewriteExthSection(record0, mobiHeaderOffset) {
   const mobiHeaderLength = record0.readUInt32BE(mobiHeaderOffset + 4);
   const exthStart = mobiHeaderOffset + mobiHeaderLength;
-  if (exthStart + 12 > record0.length ||
-      record0.slice(exthStart, exthStart + 4).toString('ascii') !== 'EXTH') {
+  if (
+    exthStart + 12 > record0.length ||
+    record0.slice(exthStart, exthStart + 4).toString('ascii') !== 'EXTH'
+  ) {
     return { patched: record0, delta: 0 };
   }
 
@@ -109,8 +110,8 @@ function normalizeKindleMetadata(filePath) {
 
   const allMobis = findMobiHeaders(buf);
   const mobisInRecord0 = allMobis
-    .filter(o => o >= record0Start && o < record1Start)
-    .map(o => o - record0Start);
+    .filter((o) => o >= record0Start && o < record1Start)
+    .map((o) => o - record0Start);
   if (mobisInRecord0.length === 0) return false;
 
   let working = Buffer.from(originalRecord0);
@@ -122,11 +123,7 @@ function normalizeKindleMetadata(filePath) {
     totalDelta += delta;
   }
 
-  const out = Buffer.concat([
-    buf.slice(0, record0Start),
-    working,
-    buf.slice(record1Start),
-  ]);
+  const out = Buffer.concat([buf.slice(0, record0Start), working, buf.slice(record1Start)]);
 
   for (let i = 1; i < numRecords; i++) {
     const entryAt = 78 + i * 8;
