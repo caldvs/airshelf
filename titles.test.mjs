@@ -70,4 +70,23 @@ describe('extractSeries', () => {
       seriesIndex: null,
     });
   });
+
+  it('strips a trailing "-- Author" suffix before matching series', () => {
+    // Without the suffix-strip, the closing paren wouldn't be at the end of
+    // the string and SERIES_RE wouldn't match. cleanTitle drops the suffix
+    // anyway, so the returned title also matches the suffix-stripped form.
+    expect(extractSeries('Dune (Dune Chronicles #1) -- Frank Herbert.epub')).toEqual({
+      title: 'Dune',
+      series: 'Dune Chronicles',
+      seriesIndex: 1,
+    });
+  });
+
+  it('rejects #0 (seriesIndex is 1-based) — keeps title + drops series', () => {
+    expect(extractSeries('Foo (Series #0)')).toEqual({
+      title: 'Foo',
+      series: null,
+      seriesIndex: null,
+    });
+  });
 });

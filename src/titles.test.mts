@@ -188,6 +188,22 @@ describe('extractSeries', () => {
       seriesIndex: null,
     });
   });
+
+  it('strips a trailing "-- Author" suffix before matching series', () => {
+    expect(extractSeries('Dune (Dune Chronicles #1) -- Frank Herbert.epub')).toEqual({
+      title: 'Dune',
+      series: 'Dune Chronicles',
+      seriesIndex: 1,
+    });
+  });
+
+  it('rejects #0 (seriesIndex is 1-based) — keeps title + drops series', () => {
+    expect(extractSeries('Foo (Series #0)')).toEqual({
+      title: 'Foo',
+      series: null,
+      seriesIndex: null,
+    });
+  });
 });
 
 describe('shouldUseOpenLibraryTitle', () => {
