@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { handleCoverRequest, sniffImageType } from './route-cover.js';
+import { handleCoverRequest, sniffImageType } from './out/server/routes/cover.js';
 
 // Tiny image fixtures by magic bytes — the route only needs to sniff the
 // header. Padding with junk so each is more than two bytes.
