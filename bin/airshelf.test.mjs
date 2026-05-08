@@ -97,6 +97,7 @@ describe('CLI invocation (black box)', () => {
     expect(stdout).toMatch(/\burl\b/);
     expect(stdout).toMatch(/\blist\b/);
     expect(stdout).toMatch(/\bsend\b/);
+    expect(stdout).toMatch(/\brotate-token\b/);
   });
 
   it('unknown command exits non-zero with stderr message', async () => {

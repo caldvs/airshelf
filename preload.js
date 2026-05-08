@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('airshelf', {
   addBookPaths: (paths) => ipcRenderer.invoke('books:addPaths', paths),
   deleteBook: (id) => ipcRenderer.invoke('books:delete', id),
   serverInfo: () => ipcRenderer.invoke('server:info'),
+  onServerTokenRotated: (cb) => {
+    ipcRenderer.on('server:tokenRotated', (_e, info) => cb(info));
+  },
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
   // Electron >= 32 removed File.path; use webUtils.getPathForFile
   getPathForFile: (file) => {

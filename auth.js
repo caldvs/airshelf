@@ -57,9 +57,41 @@ function loadOrCreateServerToken(userData) {
     // Old format (e.g. legacy 32-hex) — regenerate.
   } catch {}
   const t = generatePronounceableToken();
-  fs.writeFileSync(tokenFile, t, { mode: 0o600 });
-  try { fs.chmodSync(tokenFile, 0o600); } catch {}
+  writeTokenAtomic(tokenFile, t);
   return t;
+}
+
+// Force-generate a new token, replacing the existing file. Used by the CLI
+// rotate-token command (#37) via POST /<token>/rotate-token. Atomic write
+// so a crash mid-rotation leaves either the old or new token fully on disk
+// — never a half-written byte sequence that would lock the user out until
+// they delete the file.
+function rotateServerToken(userData) {
+  const tokenFile = path.join(userData, 'server-token');
+  // Read the current token (if any) so we can guarantee the rotation
+  // actually rotates. Token entropy is ~20 bits, so a same-token redraw
+  // would happen ~1 in 1.16M rotations — rare but real, and a "rotation"
+  // that returns the same value is silently a no-op for the user.
+  let current = null;
+  try {
+    const raw = fs.readFileSync(tokenFile, 'utf8').trim();
+    if (TOKEN_RE.test(raw)) current = raw;
+  } catch {}
+  // Bounded retry: collision odds are vanishing, but cap so a broken RNG
+  // can't spin forever.
+  let t = generatePronounceableToken();
+  for (let attempt = 0; attempt < 8 && t === current; attempt++) {
+    t = generatePronounceableToken();
+  }
+  writeTokenAtomic(tokenFile, t);
+  return t;
+}
+
+function writeTokenAtomic(tokenFile, token) {
+  const tmp = `${tokenFile}.tmp`;
+  fs.writeFileSync(tmp, token, { mode: 0o600 });
+  try { fs.chmodSync(tmp, 0o600); } catch {}
+  fs.renameSync(tmp, tokenFile);
 }
 
 // Per-IP rate limiter for failed auth attempts. The token has only ~20 bits
@@ -105,6 +137,7 @@ class FailedAuthLimiter {
 module.exports = {
   tokensMatch,
   loadOrCreateServerToken,
+  rotateServerToken,
   generatePronounceableToken,
   FailedAuthLimiter,
   TOKEN_RE,

@@ -748,6 +748,15 @@ if (window.airshelf.onBooksChanged) {
   });
 }
 
+// Token rotation (from CLI `airshelf rotate-token`) — refresh the displayed
+// URL immediately rather than waiting for the 5s loadServerInfo poll.
+if (window.airshelf.onServerTokenRotated) {
+  window.airshelf.onServerTokenRotated(() => {
+    loadServerInfo();
+    showToast('Server token rotated', 'warn');
+  });
+}
+
 // ---- Cover URL modal ----
 const urlModal = document.getElementById('url-modal');
 const urlInput = document.getElementById('url-input');
