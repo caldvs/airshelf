@@ -60,9 +60,7 @@
     "afterSign": "build/notarize.js",
     "files": [
       "main.js",
-      "preload.js",
       "out/**/*",
-      "route-index.js",
       "renderer/**/*",
       "build/icon.icns",
       "build/icon_256.png",

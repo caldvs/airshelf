@@ -1498,7 +1498,7 @@ function createWindow() {
     backgroundColor: '#ececec',
     icon: path.join(__dirname, 'build', 'icon.icns'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'out', 'electron', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
