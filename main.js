@@ -543,10 +543,6 @@ function extractEpubMeta(epubPath) {
   }
 }
 
-function extractEpubTitle(epubPath) {
-  return extractEpubMeta(epubPath).title;
-}
-
 // titlesMatch / cleanTitle / guessAuthorFromFilename moved to ./titles.js
 // — single canonical impl, requires above.
 
@@ -1066,9 +1062,6 @@ function renderScreenshotHtml() {
   const books = listBooks().slice(0, 8);
   const rendered = books
     .map((b) => {
-      const coverMarkup = b.cover
-        ? `<img src="/${serverToken}/cover/${b.id}" alt="">`
-        : `<div class="book-cover placeholder" style="font-size:11px;">${escapeHtml(b.title.slice(0, 30))}</div>`;
       return `
       <div class="book-card">
         <div class="book-cover">${b.cover ? `<img src="/${serverToken}/cover/${b.id}" alt="">` : escapeHtml(b.title.slice(0, 24))}</div>
@@ -1412,10 +1405,6 @@ function startServer() {
         pipeStreamToResponse(dlStream, req, res);
         return;
       }
-      // Streams the original .epub for the in-app reader (epubjs needs the
-      // raw zip with proper MIME). The reader fetches via loopback, but the
-      // route is reachable from LAN with the token like every other route —
-      // CORS is set to 'null' (matches file:// origin) and Range support
       // keeps epubjs happy on big books. The decision logic lives in
       // route-epub.js so it can be tested without booting an HTTP server.
       const epubDecision = await handleEpubRequest({

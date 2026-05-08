@@ -33,9 +33,13 @@
 
   /* Fonts. Native macOS stack — no Inter (generic AI default), no
      bundled web fonts. ui-sans-serif maps to SF Pro on macOS. */
-  --font-body: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
-  --font-display: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-body:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui,
+    sans-serif;
+  --font-display:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', system-ui,
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 
   /* Motion */
   --duration-fast: 100ms;
@@ -69,8 +73,18 @@
   --tabbar-text: rgba(30, 41, 59, 0.72);
   --tabbar-text-hover: rgba(15, 23, 42, 0.9);
   --tabbar-active-bg: rgba(255, 255, 255, 0.65);
-  --tabbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.05) 38%, rgba(255, 255, 255, 0) 60%, rgba(255, 255, 255, 0.12) 100%);
-  --placeholder-grad: linear-gradient(135deg, var(--bg-elev), color-mix(in oklch, var(--accent-soft) 70%, var(--bg-elev)));
+  --tabbar-sheen: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.05) 38%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  --placeholder-grad: linear-gradient(
+    135deg,
+    var(--bg-elev),
+    color-mix(in oklch, var(--accent-soft) 70%, var(--bg-elev))
+  );
   --help-text: color-mix(in oklch, var(--accent) 80%, var(--text));
   --help-border: color-mix(in oklch, var(--accent) 30%, var(--border-strong));
   --toast-bg: #1f2937;
@@ -91,7 +105,7 @@
    ============================================================ */
 
 :root,
-[data-theme="cloud"] {
+[data-theme='cloud'] {
   --bg: #f7f8fa;
   --bg-elev: #ffffff;
   --panel: #ffffff;
@@ -105,7 +119,7 @@
   --ok: #16a34a;
 }
 
-[data-theme="sand"] {
+[data-theme='sand'] {
   --bg: #f5f0e8;
   --bg-elev: #faf6ef;
   --panel: #fdfaf4;
@@ -119,7 +133,7 @@
   --ok: #3f7d4f;
 }
 
-[data-theme="slate"] {
+[data-theme='slate'] {
   --bg: #1a1d23;
   --bg-elev: #22262e;
   --panel: #282c35;
@@ -155,7 +169,7 @@
   --scrollbar-thumb: rgba(255, 255, 255, 0.15);
 }
 
-[data-theme="rose"] {
+[data-theme='rose'] {
   --bg: #fdf2f4;
   --bg-elev: #fef7f8;
   --panel: #ffffff;
@@ -169,7 +183,7 @@
   --ok: #16a34a;
 }
 
-[data-theme="moss"] {
+[data-theme='moss'] {
   --bg: #f0f4ef;
   --bg-elev: #f7faf6;
   --panel: #fafdf9;
@@ -206,7 +220,11 @@
     --tabbar-text: rgba(228, 230, 234, 0.7);
     --tabbar-text-hover: rgba(255, 255, 255, 0.95);
     --tabbar-active-bg: rgba(60, 70, 90, 0.7);
-    --tabbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 60%);
+    --tabbar-sheen: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0) 60%
+    );
     --placeholder-grad: linear-gradient(135deg, #2d3340, #3a4150);
     --help-text: var(--accent);
     --help-border: rgba(109, 159, 255, 0.28);
@@ -225,7 +243,9 @@
    instantaneous transitions so state changes still register, just without
    the showy movement. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -257,9 +277,16 @@
    Reset + base
    ============================================================ */
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-html, body { height: 100%; }
+html,
+body {
+  height: 100%;
+}
 
 body {
   font-family: var(--font-body);
@@ -295,7 +322,9 @@ body {
   height: var(--space-7);
 }
 
-.topbar-drag { display: none; }
+.topbar-drag {
+  display: none;
+}
 
 .topbar-inner {
   position: absolute;
@@ -309,10 +338,12 @@ body {
    Bottom glass tab bar
    ============================================================ */
 
-.content { position: relative; }
+.content {
+  position: relative;
+}
 
 .content::after {
-  content: "";
+  content: '';
   position: fixed;
   left: 0;
   right: 0;
@@ -356,7 +387,7 @@ body {
 }
 
 .tabbar-inner::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -382,12 +413,19 @@ body {
   align-items: center;
   gap: 3px;
   min-width: 72px;
-  transition: color var(--duration-base), transform var(--duration-fast);
+  transition:
+    color var(--duration-base),
+    transform var(--duration-fast);
   z-index: 1;
 }
 
-.nav-item svg { stroke-width: 1.8; opacity: 0.9; }
-.nav-item:hover { color: var(--tabbar-text-hover); }
+.nav-item svg {
+  stroke-width: 1.8;
+  opacity: 0.9;
+}
+.nav-item:hover {
+  color: var(--tabbar-text-hover);
+}
 
 .nav-item.active {
   color: var(--accent);
@@ -400,8 +438,12 @@ body {
   -webkit-backdrop-filter: blur(12px);
 }
 
-.nav-item.active svg { opacity: 1; }
-.nav-item:active { transform: scale(0.96); }
+.nav-item.active svg {
+  opacity: 1;
+}
+.nav-item:active {
+  transform: scale(0.96);
+}
 
 /* ============================================================
    Buttons (pill, header-add)
@@ -420,18 +462,29 @@ body {
   padding: 7px var(--space-3);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background var(--duration-fast), border-color var(--duration-fast), transform 0.05s;
+  transition:
+    background var(--duration-fast),
+    border-color var(--duration-fast),
+    transform 0.05s;
 }
 
-.pill-btn:hover { background: color-mix(in oklch, var(--accent-soft) 30%, var(--panel)); border-color: var(--accent); }
-.pill-btn:active { transform: translateY(1px); }
+.pill-btn:hover {
+  background: color-mix(in oklch, var(--accent-soft) 30%, var(--panel));
+  border-color: var(--accent);
+}
+.pill-btn:active {
+  transform: translateY(1px);
+}
 
 .pill-btn.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
-.pill-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.pill-btn.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
 
 .header-add {
   position: absolute;
@@ -449,12 +502,20 @@ body {
   justify-content: center;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  box-shadow: var(--shadow-1), 0 4px 10px color-mix(in oklch, var(--accent) 25%, transparent);
-  transition: background var(--duration-fast), transform 80ms;
+  box-shadow:
+    var(--shadow-1),
+    0 4px 10px color-mix(in oklch, var(--accent) 25%, transparent);
+  transition:
+    background var(--duration-fast),
+    transform 80ms;
 }
 
-.header-add:hover { background: var(--accent-hover); }
-.header-add:active { transform: translateY(-50%) scale(0.94); }
+.header-add:hover {
+  background: var(--accent-hover);
+}
+.header-add:active {
+  transform: translateY(-50%) scale(0.94);
+}
 
 /* ============================================================
    Content + views
@@ -474,7 +535,9 @@ body {
   overflow: hidden;
 }
 
-.view.hidden { display: none; }
+.view.hidden {
+  display: none;
+}
 
 .view-intro {
   padding: var(--space-4) var(--space-6) var(--space-1);
@@ -531,10 +594,14 @@ body {
   transition: transform 120ms ease;
 }
 
-.book-card:hover { transform: translateY(-3px); }
+.book-card:hover {
+  transform: translateY(-3px);
+}
 
 .book-card.selected .book-cover {
-  box-shadow: 0 0 0 2px var(--accent), 0 6px 14px rgba(var(--shadow-rgb), 0.22);
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 6px 14px rgba(var(--shadow-rgb), 0.22);
 }
 
 .book-cover {
@@ -556,13 +623,21 @@ body {
   position: relative;
 }
 
-.book-cover img { width: 100%; height: 100%; object-fit: cover; }
+.book-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
-.book-cover.placeholder { background: var(--placeholder-grad); }
+.book-cover.placeholder {
+  background: var(--placeholder-grad);
+}
 
 /* Dim only the artwork on finished covers — applying opacity to the parent
  * would also fade the progress bar and "✓ Done" pill. */
-.book-cover.finished img { opacity: 0.6; }
+.book-cover.finished img {
+  opacity: 0.6;
+}
 
 .cover-progress {
   position: absolute;
@@ -577,7 +652,9 @@ body {
   background: var(--accent);
   transition: width var(--duration-base) var(--easing);
 }
-.cover-progress-fill.done { background: var(--ok); }
+.cover-progress-fill.done {
+  background: var(--ok);
+}
 
 .cover-progress-label {
   position: absolute;
@@ -592,7 +669,10 @@ body {
   letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
 }
-.cover-progress-label.done { background: var(--ok); color: #0a210e; }
+.cover-progress-label.done {
+  background: var(--ok);
+  color: #0a210e;
+}
 
 .book-title {
   margin-top: var(--space-3);
@@ -643,7 +723,7 @@ body {
 }
 .series-stack::before,
 .series-stack::after {
-  content: "";
+  content: '';
   position: absolute;
   /* Match the .book-cover footprint at the top of the card. */
   top: 0;
@@ -755,7 +835,9 @@ body {
   font-family: inherit;
 }
 
-.book-card:hover .delete-btn { display: flex; }
+.book-card:hover .delete-btn {
+  display: flex;
+}
 
 .drop-hint {
   display: none;
@@ -772,7 +854,9 @@ body {
   pointer-events: none;
 }
 
-.drop-hint.active { display: flex; }
+.drop-hint.active {
+  display: flex;
+}
 
 .shelf-empty {
   grid-column: 1 / -1;
@@ -865,7 +949,9 @@ body {
   justify-content: center;
 }
 
-.copy-btn:hover { color: var(--accent-hover); }
+.copy-btn:hover {
+  color: var(--accent-hover);
+}
 
 /* Pair shortlink shown below the main URL pill. The visual weight is
    intentionally lighter than .url-pill — the long URL is still the
@@ -914,8 +1000,13 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pair-shortlink-url:hover { background: var(--bg-elev); }
-.pair-shortlink-url:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.pair-shortlink-url:hover {
+  background: var(--bg-elev);
+}
+.pair-shortlink-url:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 .pair-ttl {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -936,7 +1027,10 @@ body {
   cursor: pointer;
   flex-shrink: 0;
 }
-.pair-rotate:hover { color: var(--text); border-color: var(--text-sub); }
+.pair-rotate:hover {
+  color: var(--text);
+  border-color: var(--text-sub);
+}
 .url-fallback {
   display: flex;
   align-items: baseline;
@@ -947,7 +1041,9 @@ body {
   color: var(--text-sub);
 }
 
-.url-fallback.hidden { display: none; }
+.url-fallback.hidden {
+  display: none;
+}
 
 .url-fallback code {
   font-family: var(--font-mono);
@@ -1067,12 +1163,20 @@ body {
   border-radius: var(--radius-lg);
   cursor: pointer;
   font-family: inherit;
-  transition: border-color 150ms, transform 100ms;
+  transition:
+    border-color 150ms,
+    transform 100ms;
 }
 
-.theme-swatch:hover { border-color: var(--text-sub); }
-.theme-swatch.active { border-color: var(--accent); }
-.theme-swatch:active { transform: scale(0.96); }
+.theme-swatch:hover {
+  border-color: var(--text-sub);
+}
+.theme-swatch.active {
+  border-color: var(--accent);
+}
+.theme-swatch:active {
+  transform: scale(0.96);
+}
 
 .swatch-color {
   display: block;
@@ -1101,19 +1205,49 @@ body {
  * so the static markup contains no inline styles. The CSP still allows
  * 'unsafe-inline' for style-src because runtime DOM mutations (progress
  * bar width, reader error fallback) need it. */
-.theme-swatch[data-theme="cloud"] .swatch-color { background: #f7f8fa; border-color: #dcdce3; }
-.theme-swatch[data-theme="cloud"] .swatch-dot { background: #2563eb; }
-.theme-swatch[data-theme="sand"] .swatch-color { background: #f5f0e8; border-color: #d6cab5; }
-.theme-swatch[data-theme="sand"] .swatch-dot { background: #b45309; }
-.theme-swatch[data-theme="slate"] .swatch-color { background: #1a1d23; border-color: #3e444d; }
-.theme-swatch[data-theme="slate"] .swatch-dot { background: #6d9fff; }
-.theme-swatch[data-theme="rose"] .swatch-color { background: #fdf2f4; border-color: #e4cdd2; }
-.theme-swatch[data-theme="rose"] .swatch-dot { background: #be185d; }
-.theme-swatch[data-theme="moss"] .swatch-color { background: #f0f4ef; border-color: #c4d1bf; }
-.theme-swatch[data-theme="moss"] .swatch-dot { background: #15803d; }
+.theme-swatch[data-theme='cloud'] .swatch-color {
+  background: #f7f8fa;
+  border-color: #dcdce3;
+}
+.theme-swatch[data-theme='cloud'] .swatch-dot {
+  background: #2563eb;
+}
+.theme-swatch[data-theme='sand'] .swatch-color {
+  background: #f5f0e8;
+  border-color: #d6cab5;
+}
+.theme-swatch[data-theme='sand'] .swatch-dot {
+  background: #b45309;
+}
+.theme-swatch[data-theme='slate'] .swatch-color {
+  background: #1a1d23;
+  border-color: #3e444d;
+}
+.theme-swatch[data-theme='slate'] .swatch-dot {
+  background: #6d9fff;
+}
+.theme-swatch[data-theme='rose'] .swatch-color {
+  background: #fdf2f4;
+  border-color: #e4cdd2;
+}
+.theme-swatch[data-theme='rose'] .swatch-dot {
+  background: #be185d;
+}
+.theme-swatch[data-theme='moss'] .swatch-color {
+  background: #f0f4ef;
+  border-color: #c4d1bf;
+}
+.theme-swatch[data-theme='moss'] .swatch-dot {
+  background: #15803d;
+}
 
-.setting-label { font-weight: 600; }
-.setting-value { color: var(--text-sub); font-family: var(--font-mono); }
+.setting-label {
+  font-weight: 600;
+}
+.setting-value {
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+}
 
 .setting-row-stacked {
   flex-direction: column;
@@ -1150,14 +1284,22 @@ body {
   cursor: pointer;
   transition: transform 100ms;
 }
-.setting-btn:hover { background: var(--accent-hover); }
-.setting-btn:active { transform: translateY(1px); }
+.setting-btn:hover {
+  background: var(--accent-hover);
+}
+.setting-btn:active {
+  transform: translateY(1px);
+}
 .setting-btn-ghost {
   background: transparent;
   color: var(--text);
 }
-.setting-btn-ghost:hover { background: var(--panel); }
-.setting-btn.hidden { display: none; }
+.setting-btn-ghost:hover {
+  background: var(--panel);
+}
+.setting-btn.hidden {
+  display: none;
+}
 
 /* "Missing dependency" banner above the bookshelf. Mirrors .help-box visually
    but adds inline action buttons. */
@@ -1173,14 +1315,18 @@ body {
   color: var(--help-text);
   font-size: var(--text-md);
 }
-.missing-dep.hidden { display: none; }
+.missing-dep.hidden {
+  display: none;
+}
 .missing-dep-text {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.missing-dep-text strong { color: var(--text); }
+.missing-dep-text strong {
+  color: var(--text);
+}
 .missing-dep-actions {
   display: flex;
   align-items: center;
@@ -1198,7 +1344,9 @@ body {
   color: var(--text);
   cursor: pointer;
 }
-.missing-dep-btn:hover { background: var(--panel); }
+.missing-dep-btn:hover {
+  background: var(--panel);
+}
 .missing-dep-close {
   font: inherit;
   font-size: 18px;
@@ -1211,7 +1359,10 @@ body {
   color: var(--text-sub);
   cursor: pointer;
 }
-.missing-dep-close:hover { background: var(--bg-elev); color: var(--text); }
+.missing-dep-close:hover {
+  background: var(--bg-elev);
+  color: var(--text);
+}
 
 /* ============================================================
    Toast
@@ -1230,15 +1381,26 @@ body {
   font-weight: 500;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--duration-base), transform var(--duration-base);
+  transition:
+    opacity var(--duration-base),
+    transform var(--duration-base);
   z-index: var(--z-toast);
   box-shadow: var(--shadow-toast);
   max-width: 420px;
 }
-.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.toast.success { background: var(--accent); }
-.toast.warn    { background: #b76b00; }
-.toast.error   { background: #a62a1d; }
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.toast.success {
+  background: var(--accent);
+}
+.toast.warn {
+  background: #b76b00;
+}
+.toast.error {
+  background: #a62a1d;
+}
 
 /* Sticky update-downloaded banner — separate from `.toast` because it
  * needs a Restart action and doesn't auto-dismiss. */
@@ -1259,7 +1421,9 @@ body {
   box-shadow: var(--shadow-toast);
   max-width: 420px;
 }
-.update-banner.hidden { display: none; }
+.update-banner.hidden {
+  display: none;
+}
 .update-banner-btn {
   font: inherit;
   font-size: var(--text-sm);
@@ -1271,7 +1435,9 @@ body {
   color: #fff;
   cursor: pointer;
 }
-.update-banner-btn:hover { background: rgba(255, 255, 255, 0.2); }
+.update-banner-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
 .update-banner-close {
   font: inherit;
   font-size: 18px;
@@ -1284,7 +1450,10 @@ body {
   color: rgba(255, 255, 255, 0.7);
   cursor: pointer;
 }
-.update-banner-close:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.update-banner-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
 
 /* ============================================================
    URL modal
@@ -1299,7 +1468,9 @@ body {
   justify-content: center;
   z-index: var(--z-modal);
 }
-.modal-backdrop.active { display: flex; }
+.modal-backdrop.active {
+  display: flex;
+}
 
 .modal-box {
   background: var(--bg-elev);
@@ -1311,10 +1482,18 @@ body {
   min-width: 420px;
   max-width: 90vw;
 }
-.modal-title { font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-1); }
-.modal-sub   { font-size: var(--text-md); opacity: 0.7; margin-bottom: 14px; }
+.modal-title {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+.modal-sub {
+  font-size: var(--text-md);
+  opacity: 0.7;
+  margin-bottom: 14px;
+}
 
-.modal-box input[type="url"] {
+.modal-box input[type='url'] {
   width: 100%;
   padding: 10px var(--space-3);
   border-radius: var(--radius-sm);
@@ -1324,9 +1503,14 @@ body {
   font-size: var(--text-base);
   box-sizing: border-box;
   outline: none;
-  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+  transition:
+    border-color var(--duration-fast),
+    box-shadow var(--duration-fast);
 }
-.modal-box input[type="url"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 25%, transparent); }
+.modal-box input[type='url']:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 25%, transparent);
+}
 
 .modal-actions {
   display: flex;
@@ -1342,9 +1526,18 @@ body {
   font-weight: 500;
   cursor: pointer;
 }
-.modal-btn-ghost   { background: transparent; color: var(--text); border-color: var(--border-strong); }
-.modal-btn-primary { background: var(--accent); color: #fff; }
-.modal-btn:active { transform: translateY(1px); }
+.modal-btn-ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.modal-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.modal-btn:active {
+  transform: translateY(1px);
+}
 
 /* ============================================================
    Search palette (⌘K)
@@ -1362,7 +1555,9 @@ body {
      (which uses --z-modal) when both are open at once. */
   z-index: var(--z-palette);
 }
-.search-palette.active { display: flex; }
+.search-palette.active {
+  display: flex;
+}
 
 .search-palette-box {
   display: flex;
@@ -1375,17 +1570,24 @@ body {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-modal);
-  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+  transition:
+    border-color var(--duration-fast),
+    box-shadow var(--duration-fast);
 }
 /* The input has no border of its own, so focus is signalled at the box
    level via :focus-within. Mirrors the URL modal's :focus styling but
    applied one element up because the visual surface is the box. */
 .search-palette-box:focus-within {
   border-color: var(--accent);
-  box-shadow: var(--shadow-modal), 0 0 0 3px color-mix(in oklch, var(--accent) 25%, transparent);
+  box-shadow:
+    var(--shadow-modal),
+    0 0 0 3px color-mix(in oklch, var(--accent) 25%, transparent);
 }
-.search-palette-icon { color: var(--text-sub); flex-shrink: 0; }
-.search-palette-box input[type="search"] {
+.search-palette-icon {
+  color: var(--text-sub);
+  flex-shrink: 0;
+}
+.search-palette-box input[type='search'] {
   flex: 1;
   border: none;
   background: transparent;
@@ -1398,7 +1600,9 @@ body {
   -webkit-appearance: none;
   appearance: none;
 }
-.search-palette-box input[type="search"]::-webkit-search-cancel-button { display: none; }
+.search-palette-box input[type='search']::-webkit-search-cancel-button {
+  display: none;
+}
 
 .search-palette-hint {
   font-family: var(--font-mono);
@@ -1431,7 +1635,9 @@ body {
   justify-content: center;
   z-index: var(--z-busy);
 }
-.busy.active { display: flex; }
+.busy.active {
+  display: flex;
+}
 
 .busy-box {
   background: var(--bg-elev);
@@ -1454,16 +1660,25 @@ body {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ============================================================
    Scrollbars
    ============================================================ */
 
 .shelf::-webkit-scrollbar,
-.transfer-body::-webkit-scrollbar { width: 8px; }
+.transfer-body::-webkit-scrollbar {
+  width: 8px;
+}
 .shelf::-webkit-scrollbar-thumb,
-.transfer-body::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+.transfer-body::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
 
 /* ============================================================
    Reader
@@ -1478,7 +1693,9 @@ body {
   flex-direction: column;
   color: var(--text);
 }
-.reader.active { display: flex; }
+.reader.active {
+  display: flex;
+}
 
 .reader-bar {
   flex: 0 0 auto;
@@ -1515,7 +1732,9 @@ body {
   min-width: 32px;
   transition: background var(--duration-fast);
 }
-.reader-btn:hover { background: var(--reader-btn-hover-bg); }
+.reader-btn:hover {
+  background: var(--reader-btn-hover-bg);
+}
 
 .reader-title-wrap {
   flex: 1 1 auto;
@@ -1558,7 +1777,9 @@ body {
   min-width: 0;
   position: relative;
 }
-.reader-viewport iframe { border: 0; }
+.reader-viewport iframe {
+  border: 0;
+}
 
 .reader-zone {
   flex: 0 0 auto;
@@ -1569,7 +1790,9 @@ body {
   color: var(--reader-zone-color);
   font-size: 0;
 }
-.reader-zone:hover { background: var(--reader-zone-hover-bg); }
+.reader-zone:hover {
+  background: var(--reader-zone-hover-bg);
+}
 .reader-zone-left::before,
 .reader-zone-right::before {
   content: '';
@@ -1580,8 +1803,12 @@ body {
   border-right: 2px solid currentColor;
   margin: 0 auto;
 }
-.reader-zone-left::before { transform: rotate(-135deg); }
-.reader-zone-right::before { transform: rotate(45deg); }
+.reader-zone-left::before {
+  transform: rotate(-135deg);
+}
+.reader-zone-right::before {
+  transform: rotate(45deg);
+}
 
 .reader-progress-wrap {
   display: flex;
@@ -1637,7 +1864,9 @@ body {
   overflow-y: auto;
   z-index: 5;
 }
-.reader-toc.open { transform: translateX(0); }
+.reader-toc.open {
+  transform: translateX(0);
+}
 
 .reader-toc-head {
   font-size: var(--text-md);
@@ -1648,8 +1877,14 @@ body {
   padding: 14px var(--space-4) var(--space-2);
   border-bottom: 1px solid var(--reader-border);
 }
-.reader-toc-list { list-style: none; padding: 6px 0; margin: 0; }
-.reader-toc-list li { padding: 0; }
+.reader-toc-list {
+  list-style: none;
+  padding: 6px 0;
+  margin: 0;
+}
+.reader-toc-list li {
+  padding: 0;
+}
 .reader-toc-list button {
   display: block;
   width: 100%;
@@ -1662,16 +1897,35 @@ body {
   font-size: var(--text-base);
   color: var(--text);
   cursor: pointer;
-  transition: background var(--duration-fast), border-left-color var(--duration-fast);
+  transition:
+    background var(--duration-fast),
+    border-left-color var(--duration-fast);
 }
-.reader-toc-list button:hover { background: var(--reader-btn-hover-bg); border-left-color: var(--accent); }
-.reader-toc-list .toc-depth-1 { padding-left: 28px; font-size: var(--text-md); color: var(--text-sub); }
-.reader-toc-list .toc-depth-2 { padding-left: 40px; font-size: var(--text-md); color: var(--text-sub); }
+.reader-toc-list button:hover {
+  background: var(--reader-btn-hover-bg);
+  border-left-color: var(--accent);
+}
+.reader-toc-list .toc-depth-1 {
+  padding-left: 28px;
+  font-size: var(--text-md);
+  color: var(--text-sub);
+}
+.reader-toc-list .toc-depth-2 {
+  padding-left: 40px;
+  font-size: var(--text-md);
+  color: var(--text-sub);
+}
 
 /* Reader theme toggle icon swap. */
-#reader-theme-btn .reader-theme-icon-light { display: none; }
-body.reader-dark #reader-theme-btn .reader-theme-icon-dark { display: none; }
-body.reader-dark #reader-theme-btn .reader-theme-icon-light { display: inline; }
+#reader-theme-btn .reader-theme-icon-light {
+  display: none;
+}
+body.reader-dark #reader-theme-btn .reader-theme-icon-dark {
+  display: none;
+}
+body.reader-dark #reader-theme-btn .reader-theme-icon-light {
+  display: inline;
+}
 
 /* Force the reader chrome to match the user's reader-theme choice independent of the
  * surrounding app theme. Both directions need overrides so e.g. picking light while the
@@ -1708,5 +1962,11 @@ body.reader-light .reader {
   color: #b91c1c;
   border-color: rgba(185, 28, 28, 0.4);
 }
-.setting-btn-danger:hover { border-color: #b91c1c; background: rgba(185, 28, 28, 0.06); }
-.setting-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.setting-btn-danger:hover {
+  border-color: #b91c1c;
+  background: rgba(185, 28, 28, 0.06);
+}
+.setting-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

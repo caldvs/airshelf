@@ -41,7 +41,9 @@ function readCalibreLibrary(libraryRoot) {
     // The subquery's `ORDER BY bal.id ASC` makes the picked author
     // deterministic — Calibre inserts in primary-author-first order, so
     // this gives us the same author every run regardless of SQL plan.
-    const rows = db.prepare(`
+    const rows = db
+      .prepare(
+        `
       SELECT
         b.id     AS bookId,
         b.title  AS title,
@@ -60,7 +62,9 @@ function readCalibreLibrary(libraryRoot) {
       JOIN data d ON d.book = b.id
       WHERE d.format IN ('AZW3', 'MOBI', 'EPUB')
       ORDER BY b.id ASC
-    `).all();
+    `,
+      )
+      .all();
 
     // Pick the best format per book.
     const byBook = new Map();

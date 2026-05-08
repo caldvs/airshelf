@@ -101,18 +101,14 @@ describe('CLI invocation (black box)', () => {
   });
 
   it('unknown command exits non-zero with stderr message', async () => {
-    await expect(
-      exec(process.execPath, [cliPath, 'frobnicate']),
-    ).rejects.toMatchObject({
+    await expect(exec(process.execPath, [cliPath, 'frobnicate'])).rejects.toMatchObject({
       code: 2,
       stderr: expect.stringMatching(/unknown command/),
     });
   });
 
   it('send without arguments exits 2', async () => {
-    await expect(
-      exec(process.execPath, [cliPath, 'send']),
-    ).rejects.toMatchObject({
+    await expect(exec(process.execPath, [cliPath, 'send'])).rejects.toMatchObject({
       code: 2,
       stderr: expect.stringMatching(/needs at least one file path/),
     });

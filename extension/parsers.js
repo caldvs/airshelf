@@ -40,7 +40,11 @@ export function deriveFilename(url, fallback = 'page.pdf') {
     return fallback;
   }
   let decoded = last;
-  try { decoded = decodeURIComponent(last); } catch { /* keep raw */ }
+  try {
+    decoded = decodeURIComponent(last);
+  } catch {
+    /* keep raw */
+  }
   if (!decoded) return fallback;
   decoded = safeBasename(decoded).trim();
   if (!decoded || UNSAFE_RE.test(decoded)) return fallback;
@@ -58,5 +62,9 @@ export function deriveFilename(url, fallback = 'page.pdf') {
 export function errorMessage(e) {
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
-  try { return JSON.stringify(e); } catch { return String(e); }
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
 }

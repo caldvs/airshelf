@@ -111,14 +111,12 @@ describe('readCalibreLibrary', () => {
         title: 'Pragmatic Programmer',
         bookPath: 'Andy Hunt/Pragmatic Programmer (3)',
         author: 'Andy Hunt',
-        formats: [
-          { format: 'EPUB', name: 'PragProg' },
-        ],
+        formats: [{ format: 'EPUB', name: 'PragProg' }],
       },
     ]);
 
     const books = readCalibreLibrary(libDir);
-    const byTitle = new Map(books.map(b => [b.title, b]));
+    const byTitle = new Map(books.map((b) => [b.title, b]));
 
     expect(books).toHaveLength(3);
     // AZW3 wins over MOBI / EPUB.
@@ -155,7 +153,7 @@ describe('readCalibreLibrary', () => {
     ]);
 
     const books = readCalibreLibrary(libDir);
-    expect(books.map(b => b.title)).toEqual(['EPUB importable']);
+    expect(books.map((b) => b.title)).toEqual(['EPUB importable']);
   });
 
   it('returns null author when the book has no linked author', () => {
@@ -210,6 +208,6 @@ describe('readCalibreLibrary', () => {
     ]);
 
     const books = readCalibreLibrary(libDir);
-    expect(books.map(b => b.title)).toEqual(['Legit']);
+    expect(books.map((b) => b.title)).toEqual(['Legit']);
   });
 });

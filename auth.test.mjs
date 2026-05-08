@@ -146,7 +146,7 @@ describe('rotateServerToken', () => {
     rotateServerToken(dir);
     const entries = fs.readdirSync(dir);
     expect(entries).toContain('server-token');
-    expect(entries.some(n => n.endsWith('.tmp'))).toBe(false);
+    expect(entries.some((n) => n.endsWith('.tmp'))).toBe(false);
   });
 });
 
