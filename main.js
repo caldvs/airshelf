@@ -271,6 +271,7 @@ const { tokensMatch, loadOrCreateServerToken, rotateServerToken, FailedAuthLimit
 const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handlePairRequest } = require('./route-pair.js');
+const { validateUploadRequest, MAX_UPLOAD_BYTES } = require('./route-upload.js');
 const { humanSize, escapeHtml, getLocalIP } = require('./utils.js');
 const { handleCoverRequest } = require('./route-cover.js');
 const { renderShelfHtml } = require('./route-index.js');
@@ -1167,40 +1168,31 @@ function startServer() {
         return;
       }
 
-      if (subPath === '/upload' && req.method === 'POST') {
-        if (!isLoopback(req.socket.remoteAddress)) {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end('Not found');
+      if (subPath === '/upload') {
+        // All synchronous validation lives in route-upload.js so it can be
+        // unit-tested without booting the server. The streaming/disk-write
+        // half stays here because it's tightly coupled to req/res streams
+        // and the addBook closure.
+        const validation = validateUploadRequest({
+          method: req.method,
+          remoteAddress: req.socket.remoteAddress,
+          headers: req.headers,
+          supportedExtensions: SUPPORTED_EXTS,
+          isSafeBasename,
+          isLoopback,
+        });
+        if (!validation.ok) {
+          res.writeHead(validation.status, { 'Content-Type': 'text/plain' });
+          res.end(validation.message);
           return;
         }
-        const filename = (req.headers['x-filename'] || '').toString();
-        if (!filename || filename.length > 255 || !isSafeBasename(filename)) {
-          res.writeHead(400, { 'Content-Type': 'text/plain' });
-          res.end('Invalid or missing X-Filename header.');
-          return;
-        }
-        // Reject by extension before streaming the body. addBook checks the
-        // same allowlist, but only after we'd have written up to MAX_UPLOAD_BYTES
-        // to disk — wasteful for an obviously unsupported file.
-        if (!SUPPORTED_EXTS.includes(path.extname(filename).toLowerCase())) {
-          res.writeHead(415, { 'Content-Type': 'text/plain' });
-          res.end('Unsupported file format.');
-          return;
-        }
-        const declaredLength = parseInt(req.headers['content-length'], 10);
-        const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
-        if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
-          res.writeHead(413, { 'Content-Type': 'text/plain' });
-          res.end('Upload too large.');
-          return;
-        }
+        const { filename, ext } = validation;
         // Tmp filename keeps the *extension* so addBook's format probe and
         // cleanTitle work, but drops the user-supplied basename — which
         // could leak metadata into a world-readable temp dir, and (even
         // after isSafeBasename) be long enough to ENAMETOOLONG on some
         // filesystems. The unique random hex is the new stem; mode 0o600
         // restricts read access to this user.
-        const ext = path.extname(filename);
         const tmpPath = path.join(
           os.tmpdir(),
           `airshelf-upload-${crypto.randomBytes(8).toString('hex')}${ext}`,
