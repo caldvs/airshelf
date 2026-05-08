@@ -14,11 +14,18 @@
 // Goodreads "Exclusive Shelf" values we treat as "want to read".
 const TO_READ_SHELVES = new Set(['to-read']);
 
+export interface GoodreadsEntry {
+  title: string;
+  author: string;
+  isbn?: string;
+  year?: number;
+}
+
 // Parse a CSV line that may contain quoted fields with embedded commas and
 // escaped quotes (`""`). RFC 4180 minus newlines inside fields, which the
 // Goodreads export doesn't use.
-function parseCsvLine(line) {
-  const out = [];
+export function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
   let i = 0;
   let cur = '';
   let inQuotes = false;
@@ -59,7 +66,7 @@ function parseCsvLine(line) {
 
 // Strip Goodreads's `=""value""` trick (used for fields that look numeric
 // like ISBNs, to keep Excel from mangling them) and trim.
-function unquote(value) {
+export function unquote(value: unknown): string {
   if (typeof value !== 'string') return '';
   const m = /^="(.*)"$/.exec(value.trim());
   if (m) return m[1].replace(/""/g, '"').trim();
@@ -69,15 +76,13 @@ function unquote(value) {
 // Parse a Goodreads `library_export.csv` and return one row per book on
 // shelf "to-read". `Title`, `Author`, `Author l-f`, `ISBN`, `ISBN13`, and
 // `Year Published` are extracted when present; everything else is dropped.
-//
-// Returns: Array<{ title, author, isbn?, year? }>.
-function parseGoodreadsCsv(csv) {
+export function parseGoodreadsCsv(csv: unknown): GoodreadsEntry[] {
   if (typeof csv !== 'string') return [];
   // Goodreads exports use \r\n; split on either line ending.
   const lines = csv.split(/\r?\n/).filter((l) => l.length > 0);
   if (lines.length < 2) return [];
   const headers = parseCsvLine(lines[0]).map((h) => h.trim());
-  const idx = (name) => headers.indexOf(name);
+  const idx = (name: string): number => headers.indexOf(name);
   const iTitle = idx('Title');
   const iAuthor = idx('Author');
   const iAuthorLf = idx('Author l-f');
@@ -87,7 +92,7 @@ function parseGoodreadsCsv(csv) {
   const iShelf = idx('Exclusive Shelf');
   if (iTitle < 0 || iShelf < 0) return [];
 
-  const out = [];
+  const out: GoodreadsEntry[] = [];
   for (let r = 1; r < lines.length; r += 1) {
     const fields = parseCsvLine(lines[r]);
     const shelf = unquote(fields[iShelf]).toLowerCase();
@@ -98,7 +103,7 @@ function parseGoodreadsCsv(csv) {
       (iAuthor >= 0 && unquote(fields[iAuthor])) ||
       (iAuthorLf >= 0 && unquote(fields[iAuthorLf])) ||
       '';
-    const entry = { title, author };
+    const entry: GoodreadsEntry = { title, author };
     const isbn13 = iIsbn13 >= 0 ? unquote(fields[iIsbn13]) : '';
     const isbn = iIsbn >= 0 ? unquote(fields[iIsbn]) : '';
     if (isbn13) entry.isbn = isbn13;
@@ -111,5 +116,3 @@ function parseGoodreadsCsv(csv) {
   }
   return out;
 }
-
-module.exports = { parseCsvLine, unquote, parseGoodreadsCsv };
