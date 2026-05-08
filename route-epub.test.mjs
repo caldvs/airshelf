@@ -43,12 +43,15 @@ describe('handleEpubRequest', () => {
     expect(r).toBeNull();
   });
 
-  it('404s when the book id is unknown', async () => {
+  it('404s with CORS when the book id is unknown', async () => {
     const r = await handleEpubRequest({
       subPath: '/epub/deadbeef', books: [BOOK], getReaderEpubPath: okGet,
     });
     expect(r.status).toBe(404);
     expect(r.body).toMatch(/not found/i);
+    // The reader iframe (Origin: null) can't read the body without CORS,
+    // so error responses on this route consistently set Allow-Origin.
+    expect(r.headers['Access-Control-Allow-Origin']).toBe('null');
   });
 
   it('500s with CORS when getReaderEpubPath rejects', async () => {

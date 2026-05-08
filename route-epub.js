@@ -14,8 +14,8 @@ const CORS_ALLOW = 'null';
 
 // Returns one of:
 //   null                                                   — subPath does not match
-//   { status: 404, body }                                  — book id not in books
-//   { status: 404, body, headers }                         — built/expected file missing
+//   { status: 404, body, headers }                         — book id not in books,
+//                                                          or built/expected file missing
 //   { status: 500, body, headers }                         — getReaderEpubPath threw
 //   { status: 416, headers }                               — range outside file size
 //   { status: 206, headers, stream: { path, start, end } } — range hit
@@ -35,7 +35,13 @@ async function handleEpubRequest({ subPath, books, getReaderEpubPath, rangeHeade
   if (!m) return null;
   const id = m[1];
   const book = books.find((b) => b.id === id);
-  if (!book) return { status: 404, body: 'Not found' };
+  if (!book) {
+    return {
+      status: 404,
+      body: 'Not found',
+      headers: { 'Access-Control-Allow-Origin': CORS_ALLOW },
+    };
+  }
 
   let epubPath;
   try {
