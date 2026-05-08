@@ -62,10 +62,10 @@ function loadOrCreateServerToken(userData) {
 }
 
 // Force-generate a new token, replacing the existing file. Used by the CLI
-// rotate-token command (#37) and the renderer "Rotate token" affordance.
-// Atomic write so a crash mid-rotation leaves either the old or new token
-// fully on disk — never a half-written byte sequence that would lock the
-// user out until they delete the file.
+// rotate-token command (#37) via POST /<token>/rotate-token. Atomic write
+// so a crash mid-rotation leaves either the old or new token fully on disk
+// — never a half-written byte sequence that would lock the user out until
+// they delete the file.
 function rotateServerToken(userData) {
   const tokenFile = path.join(userData, 'server-token');
   const t = generatePronounceableToken();

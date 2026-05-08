@@ -1386,9 +1386,10 @@ function startServer() {
       // Rotate the server token (#37 `airshelf rotate-token`). Same
       // loopback-only gate as /upload — the running app's serverToken
       // updates atomically so existing /<old-token>/ requests start
-      // returning 404 immediately. Connected Kindles need to re-pair
-      // (or use the cookie set by the pair flow if they have one) to
-      // pick up the new URL.
+      // returning 404 immediately. Connected Kindles need to re-pair;
+      // the airshelf_token cookie set by the pair flow holds the *old*
+      // token, so the bare-URL fallback fails until the device pairs
+      // again with a fresh code.
       if (subPath === '/rotate-token' && req.method === 'POST') {
         if (!isLoopback(req.socket.remoteAddress)) {
           res.writeHead(404, { 'Content-Type': 'text/plain' });
