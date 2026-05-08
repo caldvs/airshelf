@@ -10,14 +10,38 @@
 // carry the real filename. The optional `.ext` in the regex stays for
 // backward compatibility but is ignored.
 
-const path = require('path');
+import * as path from 'path';
 
-const DOWNLOAD_PATH_RE = /^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/i;
+export const DOWNLOAD_PATH_RE = /^\/download\/([a-f0-9]+)(?:\.[a-z0-9]+)?$/i;
+
+interface BookEntry {
+  id: string;
+  file: string;
+  title?: string | null;
+  ext: string;
+}
+
+interface PrepareDownloadArgs {
+  subPath: string;
+  books: BookEntry[];
+  booksDir: string;
+}
+
+export type DownloadResponse =
+  | { status: 404; body: string }
+  | {
+      status: 200;
+      filePath: string;
+      headers: {
+        'Content-Type': string;
+        'Content-Disposition': string;
+      };
+    };
 
 // Sanitise a book title into a filename basename. Strips anything that
 // isn't a-zA-Z0-9, dot, underscore, space, or dash, then caps at 80 chars
 // so an unusually long title doesn't blow the Content-Disposition header.
-function sanitiseBaseName(title) {
+export function sanitiseBaseName(title: string | null | undefined): string {
   return (title || 'book').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 80);
 }
 
@@ -25,7 +49,11 @@ function sanitiseBaseName(title) {
 //   null                                 — subPath is not a /download/<id>
 //   { status: 404, body }                — book id not in the metadata
 //   { filePath, headers, status: 200 }   — caller should stat + stream
-function prepareDownloadResponse({ subPath, books, booksDir }) {
+export function prepareDownloadResponse({
+  subPath,
+  books,
+  booksDir,
+}: PrepareDownloadArgs): DownloadResponse | null {
   const m = subPath.match(DOWNLOAD_PATH_RE);
   if (!m) return null;
   // Route regex is case-insensitive; book ids are generated lowercase hex.
@@ -50,5 +78,3 @@ function prepareDownloadResponse({ subPath, books, booksDir }) {
     },
   };
 }
-
-module.exports = { DOWNLOAD_PATH_RE, sanitiseBaseName, prepareDownloadResponse };

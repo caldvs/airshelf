@@ -351,7 +351,7 @@ const { humanSize, escapeHtml, getLocalIP } = require('./out/lib/utils.js');
 const { handleCoverRequest } = require('./route-cover.js');
 const { handleEpubRequest } = require('./route-epub.js');
 const { renderShelfHtml } = require('./route-index.js');
-const { prepareDownloadResponse } = require('./route-download.js');
+const { prepareDownloadResponse } = require('./out/server/routes/download.js');
 
 // Scan the Cookie header for any host-only `airshelf_token` value matching the
 // current server token. Browsers can send duplicate cookie names (for example
