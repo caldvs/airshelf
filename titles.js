@@ -29,6 +29,52 @@ function cleanTitle(raw) {
   return t;
 }
 
+// Pull series info out of a raw title's trailing parenthetical, if it has
+// the shape `(<seriesName>[, ]?#<index>)`. Returns the cleaned title plus
+// the extracted series + index when matched. Examples that match:
+//
+//   "Dune (Dune Chronicles #1)"
+//      → series "Dune Chronicles", #1
+//   "Words of Radiance (The Stormlight Archive, #2)"
+//      → series "The Stormlight Archive", #2
+//   "Foundation and Empire (Foundation #2).epub"
+//      → series "Foundation", #2
+//
+// Examples that DON'T match (cleanTitle still applies, no series captured):
+//
+//   "The Hobbit"                          (no parenthetical)
+//   "Dune (1965)"                         (year-shape, not series)
+//   "The Lord of the Rings (Boxed Set)"   (no #N — just a label)
+//
+// We only treat a parenthetical as a series if it ends with `#<digits>` so
+// we don't false-match "Annotated Edition" / "Boxed Set" / pub years.
+//
+// SERIES_RE intentionally allows the file extension to come BEFORE the
+// closing paren in some sources ("Foo (Series #1).epub"), so the match is
+// anchored after we strip the extension by passing the raw title through
+// cleanTitle's extension regex first.
+const SERIES_RE = /\s*\((?<name>[^)]+?)(?:,)?\s+#(?<idx>\d+)\)\s*$/;
+
+function extractSeries(rawTitle) {
+  if (!rawTitle) return { title: '', series: null, seriesIndex: null };
+  // Strip a trailing extension first so "Foo (Series #1).epub" matches.
+  const sansExt = String(rawTitle).replace(
+    /\.(epub|mobi|azw3?|prc|pdf|txt|fb2|lit|lrf|pdb|rtf|docx|odt|html?)$/i,
+    '',
+  );
+  const m = sansExt.match(SERIES_RE);
+  if (!m || !m.groups) {
+    return { title: cleanTitle(rawTitle), series: null, seriesIndex: null };
+  }
+  const name = m.groups.name.trim();
+  const idx = parseInt(m.groups.idx, 10);
+  return {
+    title: cleanTitle(rawTitle),
+    series: name || null,
+    seriesIndex: Number.isFinite(idx) ? idx : null,
+  };
+}
+
 // Pull an author out of a raw filename like "Title -- Author.epub".
 function guessAuthorFromFilename(raw) {
   if (!raw) return null;
@@ -58,4 +104,10 @@ function shouldUseOpenLibraryTitle(local, ol) {
   return ol.length <= local.length + 4;
 }
 
-module.exports = { titlesMatch, cleanTitle, guessAuthorFromFilename, shouldUseOpenLibraryTitle };
+module.exports = {
+  titlesMatch,
+  cleanTitle,
+  extractSeries,
+  guessAuthorFromFilename,
+  shouldUseOpenLibraryTitle,
+};
