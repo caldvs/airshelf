@@ -461,17 +461,25 @@ searchPalette.addEventListener('click', (e) => {
   if (e.target === searchPalette) closeSearchPalette();
 });
 
+// Per-platform shortcut: ⌘K on macOS, Ctrl+K elsewhere. Accepting either
+// modifier on Mac would clobber Ctrl+K's "delete to end of line" binding
+// in text inputs.
+const IS_MAC = /Mac|iPad|iPhone|iPod/.test(navigator.platform || '');
+
 document.addEventListener('keydown', (e) => {
-  // ⌘K (mac) or Ctrl+K (windows/linux). Always-global on purpose — even if
-  // another input has focus (e.g. the cover-URL modal), ⌘K should still
-  // surface the palette. Browsers don't bind anything to ⌘K in text inputs
-  // so there's nothing useful to preserve.
+  // Always-global on purpose — even if another input has focus (e.g. the
+  // cover-URL modal), the palette shortcut should still surface the
+  // palette. Browsers don't bind ⌘K in text inputs on macOS, so there's
+  // nothing useful to preserve.
   //
-  // Exception: while the reader overlay is active, ⌘K is a no-op. The
-  // reader has its own Escape handler and we don't want the palette to
-  // open over the book and steal subsequent Escape presses.
-  const isCmdK = (e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K');
-  if (!isCmdK) return;
+  // Exception: while the reader overlay is active, the shortcut is a
+  // no-op. The reader has its own Escape handler and we don't want the
+  // palette opening over the book and stealing subsequent Escape presses.
+  if (e.key !== 'k' && e.key !== 'K') return;
+  const modifierMatch = IS_MAC
+    ? (e.metaKey && !e.ctrlKey)
+    : (e.ctrlKey && !e.metaKey);
+  if (!modifierMatch) return;
   if (document.getElementById('reader')?.classList.contains('active')) return;
   e.preventDefault();
   if (searchPalette.classList.contains('active')) closeSearchPalette();
