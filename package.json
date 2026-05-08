@@ -8,9 +8,13 @@
     "airshelf": "bin/airshelf.js"
   },
   "scripts": {
+    "compile": "rimraf lib && tsc",
+    "prestart": "npm run compile",
     "start": "electron .",
+    "prebuild": "npm run compile",
     "build": "electron-builder --mac",
     "postbuild": "npm rebuild better-sqlite3",
+    "pretest": "npm run compile",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -62,7 +66,7 @@
       "auth.js",
       "pair.js",
       "safety.js",
-      "hash.js",
+      "lib/**/*",
       "concurrency.js",
       "utils.js",
       "backup.js",

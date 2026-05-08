@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
 const { Bonjour } = require('bonjour-service');
-const { hashFileSha1 } = require('./hash.js');
+const { hashFileSha1 } = require('./lib/hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
 const { readCalibreLibrary } = require('./calibre.js');
 
@@ -1417,7 +1417,7 @@ function startServer() {
         res.writeHead(epubDecision.status, epubDecision.headers || {});
         if (epubDecision.stream) {
           const { path: streamPath, start, end } = epubDecision.stream;
-          const opts = (start !== undefined) ? { start, end } : {};
+          const opts = start !== undefined ? { start, end } : {};
           pipeStreamToResponse(fs.createReadStream(streamPath, opts), req, res);
         } else if (epubDecision.body !== undefined) {
           res.end(epubDecision.body);
