@@ -5,11 +5,15 @@
 // finish their current item before the rejected promise surfaces. If
 // you need cancellation, wrap with an AbortController and have the
 // mapper observe it.
-async function mapWithConcurrency(items, limit, mapper) {
-  const results = new Array(items.length);
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
   let cursor = 0;
   const workerCount = Math.max(1, Math.min(limit, items.length));
-  const workers = [];
+  const workers: Promise<void>[] = [];
   for (let w = 0; w < workerCount; w++) {
     workers.push(
       (async () => {
@@ -30,13 +34,11 @@ async function mapWithConcurrency(items, limit, mapper) {
 // addBooks both reading + writing books.json without losing each other's
 // updates). Errors don't break the chain — the rejected promise is still
 // returned to the caller, but later tasks proceed.
-function createSerialQueue() {
-  let tail = Promise.resolve();
-  return function run(fn) {
+export function createSerialQueue() {
+  let tail: Promise<unknown> = Promise.resolve();
+  return function run<T>(fn: () => Promise<T>): Promise<T> {
     const next = tail.then(() => fn());
     tail = next.catch(() => {});
     return next;
   };
 }
-
-module.exports = { mapWithConcurrency, createSerialQueue };

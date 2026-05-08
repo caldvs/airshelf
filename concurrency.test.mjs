@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapWithConcurrency, createSerialQueue } from './concurrency.js';
+import { mapWithConcurrency, createSerialQueue } from './lib/concurrency.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
