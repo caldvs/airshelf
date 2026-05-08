@@ -49,7 +49,7 @@ function readReaderProgress(id) {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
 }
 
-function renderBooks(books) {
+function renderBooks(books, opts = {}) {
   shelfEl.innerHTML = '';
 
   if (selectedBookId && !books.find(b => b.id === selectedBookId)) {
@@ -64,7 +64,7 @@ function renderBooks(books) {
   if (!books.length) {
     const empty = document.createElement('div');
     empty.className = 'shelf-empty';
-    empty.textContent = 'No books yet. Click + or drop files here.';
+    empty.textContent = opts.emptyMessage || 'No books yet. Click + or drop files here.';
     shelfEl.appendChild(empty);
     return;
   }
@@ -213,9 +213,37 @@ document.addEventListener('keydown', async (e) => {
   }
 });
 
+// Last result of books:list, kept so the search filter can re-render without
+// a round-trip to main. Updated by refresh() and by books:changed events.
+let allBooks = [];
+let searchQuery = '';
+
+function bookMatchesQuery(b, q) {
+  // Plain substring matching is enough for the scale (hundreds of books, per
+  // issue #42) and avoids needing tokenisation, fuzzy scoring, or an index.
+  // Year is coerced to string so `2014` matches a numeric year field.
+  return (b.title || '').toLowerCase().includes(q)
+      || (b.author || '').toLowerCase().includes(q)
+      || String(b.year || '').includes(q);
+}
+
+function applyBookView() {
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = q ? allBooks.filter(b => bookMatchesQuery(b, q)) : allBooks;
+  // Three empty cases: (a) library is empty, (b) library has books but the
+  // active query excludes them all, (c) no query and library is empty. We
+  // only override the default "No books yet…" copy in case (b), which is
+  // the only one where a "No matches" message is actually accurate.
+  const opts = q && filtered.length === 0 && allBooks.length > 0
+    ? { emptyMessage: `No matches for “${searchQuery.trim()}”.` }
+    : {};
+  renderBooks(filtered, opts);
+  updateSearchStatus(q, filtered.length);
+}
+
 async function refresh() {
-  const books = await window.airshelf.listBooks();
-  renderBooks(books);
+  allBooks = await window.airshelf.listBooks();
+  applyBookView();
 }
 
 function handleAddResult(result) {
@@ -437,6 +465,42 @@ if (pairUrlEl) {
   });
 }
 
+// ---- Calibre import ----
+const btnCalibreImport = document.getElementById('btn-calibre-import');
+if (btnCalibreImport && window.airshelf.importFromCalibre) {
+  // Stream per-book progress into the busy overlay so a multi-hundred
+  // book library doesn't look frozen. Main throttles via the natural
+  // pace of addBook (file copy + Calibre conversion), so no extra
+  // debouncing needed on this end.
+  if (window.airshelf.onImportProgress) {
+    window.airshelf.onImportProgress(({ done, total }) => {
+      setBusy(`Importing from Calibre — ${done}/${total}`);
+    });
+  }
+  btnCalibreImport.addEventListener('click', async () => {
+    btnCalibreImport.disabled = true;
+    setBusy('Reading Calibre library…');
+    try {
+      const r = await window.airshelf.importFromCalibre();
+      if (r && r.canceled) return;
+      if (r && r.error) {
+        showToast(r.error, 'error');
+        return;
+      }
+      const added = (r.added || []).length;
+      const dupes = (r.duplicates || []).length;
+      const errs = (r.errors || []).length;
+      const parts = [`Imported ${added} of ${r.total}`];
+      if (dupes) parts.push(`${dupes} already in library`);
+      if (errs) parts.push(`${errs} failed`);
+      showToast(parts.join(' · '), errs ? 'warn' : 'success');
+    } finally {
+      setBusy(null);
+      btnCalibreImport.disabled = false;
+    }
+  });
+}
+
 // Listen for background migrations / changes from main
 if (window.airshelf.onBooksChanged) {
   window.airshelf.onBooksChanged(() => {
@@ -505,6 +569,95 @@ document.querySelectorAll('.theme-swatch').forEach(sw => {
   });
 });
 
+// ---- Search palette ----
+//
+// Toggled by ⌘K / Ctrl+K. Live-filters the shelf as the user types. Filter
+// state survives palette close so a result-narrowed shelf stays narrowed
+// until the user clears the query — closing is just dismissing the palette,
+// not the search. ESC is two-step: the first press clears the query, the
+// second dismisses the palette.
+
+const searchPalette = document.getElementById('search-palette');
+const searchInput = document.getElementById('search-input');
+const searchStatus = document.getElementById('search-palette-status');
+
+function updateSearchStatus(q, n) {
+  if (!q) { searchStatus.textContent = ''; return; }
+  const total = allBooks.length;
+  searchStatus.textContent = n === total
+    ? `${n} match${n === 1 ? '' : 'es'}`
+    : `${n} of ${total}`;
+}
+
+function openSearchPalette() {
+  searchPalette.classList.add('active');
+  searchInput.value = searchQuery;
+  // Defer focus until after the paint that adds .active so the keyboard
+  // doesn't appear and immediately get blurred by the layout shift. The
+  // .active check inside guards against the user hitting ⌘K twice quickly:
+  // close-then-RAF would otherwise put focus into a hidden input.
+  requestAnimationFrame(() => {
+    if (!searchPalette.classList.contains('active')) return;
+    searchInput.focus();
+    searchInput.select();
+  });
+}
+
+function closeSearchPalette() {
+  searchPalette.classList.remove('active');
+}
+
+searchInput.addEventListener('input', () => {
+  searchQuery = searchInput.value;
+  applyBookView();
+});
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (searchInput.value) {
+      // First Escape clears, second closes — common palette behaviour.
+      searchInput.value = '';
+      searchQuery = '';
+      applyBookView();
+    } else {
+      closeSearchPalette();
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    closeSearchPalette();
+  }
+});
+
+searchPalette.addEventListener('click', (e) => {
+  // Click on the backdrop (outside the box) closes; clicks inside don't.
+  if (e.target === searchPalette) closeSearchPalette();
+});
+
+// Per-platform shortcut: ⌘K on macOS, Ctrl+K elsewhere. Accepting either
+// modifier on Mac would clobber Ctrl+K's "delete to end of line" binding
+// in text inputs.
+const IS_MAC = /Mac|iPad|iPhone|iPod/.test(navigator.platform || '');
+
+document.addEventListener('keydown', (e) => {
+  // Always-global on purpose — even if another input has focus (e.g. the
+  // cover-URL modal), the palette shortcut should still surface the
+  // palette. Browsers don't bind ⌘K in text inputs on macOS, so there's
+  // nothing useful to preserve.
+  //
+  // Exception: while the reader overlay is active, the shortcut is a
+  // no-op. The reader has its own Escape handler and we don't want the
+  // palette opening over the book and stealing subsequent Escape presses.
+  if (e.key !== 'k' && e.key !== 'K') return;
+  const modifierMatch = IS_MAC
+    ? (e.metaKey && !e.ctrlKey)
+    : (e.ctrlKey && !e.metaKey);
+  if (!modifierMatch) return;
+  if (document.getElementById('reader')?.classList.contains('active')) return;
+  e.preventDefault();
+  if (searchPalette.classList.contains('active')) closeSearchPalette();
+  else openSearchPalette();
+});
 // ---- Calibre detection ----
 //
 // The banner above the shelf is dismissable via localStorage so users who
