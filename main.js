@@ -297,7 +297,6 @@ let metaFile = null;
 let serverToken = null;
 let userDataPath = null;
 const pairStore = new PairCodeStore();
-let settingsFile = null;
 let bonjour = null;
 // Stable hostname registered over mDNS. Resolves to `airshelf.local` on the
 // LAN, so the Kindle browser doesn't need the Mac's ever-changing DHCP IP.
@@ -305,40 +304,22 @@ const MDNS_HOST = 'airshelf';
 
 // ---------- Settings (small key/value store, separate from books.json) ----------
 //
-// The set of fields persisted here is deliberately tiny — anything bigger
-// (themes, library state, etc.) belongs in localStorage on the renderer side
-// or in books.json. Today the only entry is `calibreBinDir` for #29.
+// Implementation moved to ./settings.js — this is the file-bound store
+// instance, initialised in app.whenReady once we know userData. loadSettings
+// and saveSettings are kept as thin shims so existing call sites don't have
+// to change. Both tolerate being called before init (returns {} / no-ops to
+// disk) so getCalibreUserBinDir at module-eval time doesn't crash.
 
-let settingsCache = null;
+const { createSettingsStore } = require('./settings.js');
+let settingsStore = null;
 
 function loadSettings() {
-  if (settingsCache) return settingsCache;
-  if (!settingsFile) return (settingsCache = {});
-  try {
-    const raw = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    // Plain object only — reject arrays (typeof [] === 'object') and null.
-    // A malformed/tampered settings.json shouldn't poison saveSettings, which
-    // spreads into a fresh object expecting string keys.
-    settingsCache = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  } catch {
-    settingsCache = {};
-  }
-  return settingsCache;
+  return settingsStore ? settingsStore.load() : {};
 }
 
 function saveSettings(patch) {
-  const next = { ...loadSettings(), ...patch };
-  // Drop nulls so calling saveSettings({ calibreBinDir: null }) actually
-  // forgets the key rather than persisting `null`.
-  for (const k of Object.keys(next)) {
-    if (next[k] == null) delete next[k];
-  }
-  settingsCache = next;
-  if (!settingsFile) return next;
-  const tmp = `${settingsFile}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, settingsFile);
-  return next;
+  if (!settingsStore) return { ...patch };
+  return settingsStore.save(patch);
 }
 
 // ---------- Book storage ----------
@@ -1613,7 +1594,7 @@ app.whenReady().then(() => {
   booksDir = path.join(userData, 'books');
   fs.mkdirSync(booksDir, { recursive: true });
   metaFile = path.join(userData, 'books.json');
-  settingsFile = path.join(userData, 'settings.json');
+  settingsStore = createSettingsStore(path.join(userData, 'settings.json'));
   serverToken = loadOrCreateServerToken(userData);
 
   // startServer() also wires startMdns() into the `listening` callback so
