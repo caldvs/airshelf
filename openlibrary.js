@@ -14,8 +14,9 @@ const COVER_BASE = 'https://covers.openlibrary.org/b';
 const WORKS_BASE = 'https://openlibrary.org';
 const USER_AGENT = 'Airshelf/0.1 (ebook helper)';
 
-// Open Library returns ~9 KB of placeholder bytes when no cover exists.
-// Anything below this threshold is filtered out by downloadOpenLibraryCover.
+// Open Library returns a tiny "no cover" placeholder image (well under 1 KB)
+// when the requested cover doesn't exist. We treat any response shorter
+// than this threshold as a placeholder and fall through to the next URL.
 const COVER_PLACEHOLDER_BYTES = 1000;
 
 // Build query-title variants for a search. Open Library's search is finicky
@@ -142,12 +143,6 @@ async function downloadOpenLibraryCover(doc, outPath, deps = {}) {
   return false;
 }
 
-// Convenience: search + cover-download in one shot.
-async function fetchCoverFromOpenLibrary(title, author, outPath, deps = {}) {
-  const doc = await searchOpenLibrary(title, author, deps);
-  return doc ? await downloadOpenLibraryCover(doc, outPath, deps) : false;
-}
-
 // Fetch a description for a book from Open Library's works API. Returns
 // null on any failure path: missing `key`, network error, missing
 // description, or unrecognised description shape.
@@ -168,7 +163,6 @@ module.exports = {
   // High-level operations.
   searchOpenLibrary,
   downloadOpenLibraryCover,
-  fetchCoverFromOpenLibrary,
   fetchOpenLibraryDescription,
   // Pure helpers exposed for testing + reuse.
   buildSearchVariants,

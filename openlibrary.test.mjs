@@ -11,6 +11,13 @@ import {
   COVER_PLACEHOLDER_BYTES,
 } from './openlibrary.js';
 
+// Note: openlibrary.js exports `searchOpenLibrary` and
+// `downloadOpenLibraryCover` separately rather than the
+// `fetchCoverFromOpenLibrary` composite helper. main.js wants the doc
+// from the search step for description fetching too, so the composite
+// would always lose information. Tests cover the two halves
+// individually below.
+
 // ---- Pure helpers ----
 
 describe('buildSearchVariants', () => {
