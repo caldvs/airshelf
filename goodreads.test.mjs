@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCsvLine, unquote, parseGoodreadsCsv } from './goodreads.js';
+import { parseCsvLine, unquote, parseGoodreadsCsv } from './out/integrations/goodreads.js';
 
 describe('parseCsvLine', () => {
   it('splits on commas outside quotes', () => {
