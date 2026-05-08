@@ -349,7 +349,7 @@ const { handlePairRequest } = require('./out/server/routes/pair.js');
 const { validateUploadRequest, MAX_UPLOAD_BYTES } = require('./out/server/routes/upload.js');
 const { humanSize, escapeHtml, getLocalIP } = require('./out/lib/utils.js');
 const { handleCoverRequest } = require('./route-cover.js');
-const { handleEpubRequest } = require('./route-epub.js');
+const { handleEpubRequest } = require('./out/server/routes/epub.js');
 const { renderShelfHtml } = require('./route-index.js');
 const { prepareDownloadResponse } = require('./out/server/routes/download.js');
 

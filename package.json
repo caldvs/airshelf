@@ -64,7 +64,6 @@
       "out/**/*",
       "route-cover.js",
       "route-index.js",
-      "route-epub.js",
       "renderer/**/*",
       "build/icon.icns",
       "build/icon_256.png",
