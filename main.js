@@ -9,6 +9,7 @@ const AdmZip = require('adm-zip');
 const { Bonjour } = require('bonjour-service');
 const { hashFileSha1 } = require('./hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('./concurrency.js');
+const { readCalibreLibrary } = require('./calibre.js');
 
 // FIFO around the two atomic load-then-write blocks in addBook (the
 // dedup check at the start, and the push-to-meta at the end). Concurrent
@@ -267,8 +268,25 @@ async function getOrBuildReaderEpub(book) {
 const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./safety.js');
 const { buildManifest, validateBackup } = require('./backup.js');
 const { tokensMatch, loadOrCreateServerToken, FailedAuthLimiter } = require('./auth.js');
+const { PairCodeStore, PAIR_TTL_MS } = require('./pair.js');
 const { authoriseRequest } = require('./route-auth.js');
 const { handleCoverRequest } = require('./route-cover.js');
+const { parseRangeHeader } = require('./route-range.js');
+
+// Scan the Cookie header for any host-only `airshelf_token` value matching the
+// current server token. Browsers can send duplicate cookie names (for example
+// differing Path scopes), so callers shouldn't trust first/last ordering.
+function hasMatchingCookieToken(header, expectedToken) {
+  if (!header || typeof header !== 'string') return false;
+  for (const piece of header.split(';')) {
+    const eq = piece.indexOf('=');
+    if (eq < 0) continue;
+    const name = piece.slice(0, eq).trim();
+    if (name !== 'airshelf_token') continue;
+    if (tokensMatch(piece.slice(eq + 1).trim(), expectedToken)) return true;
+  }
+  return false;
+}
 const authLimiter = new FailedAuthLimiter();
 
 let mainWindow = null;
@@ -276,6 +294,7 @@ let server = null;
 let booksDir = null;
 let metaFile = null;
 let serverToken = null;
+const pairStore = new PairCodeStore();
 let settingsFile = null;
 let bonjour = null;
 // Stable hostname registered over mDNS. Resolves to `airshelf.local` on the
@@ -1243,6 +1262,46 @@ function startServer() {
     }
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
+
+      // Pairing flow (#34): /pair/<CODE> validates a short, single-use code
+      // and sets a long-lived cookie carrying the server token. The cookie
+      // path itself doesn't expose listBook/cover routes — those still
+      // require the /<token>/ prefix — but it lets the user reach the
+      // library from a bare-URL bookmark.
+      const pairMatch = url.pathname.match(/^\/pair\/([^/]+)\/?$/);
+      if (pairMatch) {
+        if (pairStore.consume(pairMatch[1])) {
+          authLimiter.recordSuccess(ip);
+          // 1 year is well past the practical lifetime of the running app
+          // and matches "rotate token to revoke" rather than "expire cookie
+          // independently". HttpOnly because the renderer doesn't need
+          // cookie access; SameSite=Lax so the redirect from /pair/:code
+          // still attaches the cookie on the followup request.
+          res.writeHead(302, {
+            'Location': `/${serverToken}/`,
+            'Set-Cookie': `airshelf_token=${serverToken}; Max-Age=31536000; HttpOnly; SameSite=Lax; Path=/`,
+            'Cache-Control': 'no-store',
+          });
+          res.end();
+          return;
+        }
+        authLimiter.recordFail(ip);
+        res.writeHead(404); res.end('Not found'); return;
+      }
+
+      // Bare-URL fallback (post-pair): if the request has no /<token>/
+      // prefix but carries a valid cookie, redirect to the canonical
+      // /<token>/ entry point. Lets the user bookmark http://<lan-ip>:PORT/
+      // instead of the longer token URL.
+      if (url.pathname === '/' || url.pathname === '') {
+        if (hasMatchingCookieToken(req.headers.cookie, serverToken)) {
+          authLimiter.recordSuccess(ip);
+          res.writeHead(302, { 'Location': `/${serverToken}/`, 'Cache-Control': 'no-store' });
+          res.end();
+          return;
+        }
+      }
+
       // Token + per-IP rate-limit gate. See route-auth.js for the rules; a
       // bad/missing token returns a stealth 404 (not 401) so the server is
       // indistinguishable from no server at all to a port-scan.
@@ -1346,8 +1405,7 @@ function startServer() {
           res.end('Missing'); return;
         }
         const stat = fs.statSync(epubPath);
-        const range = req.headers.range;
-        const headers = {
+        const baseHeaders = {
           'Content-Type': 'application/epub+zip',
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'private, max-age=3600',
@@ -1355,32 +1413,19 @@ function startServer() {
           // matches that without opening to arbitrary websites the way '*' did.
           'Access-Control-Allow-Origin': 'null',
         };
-        if (range) {
-          const m = /bytes=(\d+)-(\d*)/.exec(range);
-          if (m) {
-            const start = parseInt(m[1], 10);
-            const requestedEnd = m[2] ? parseInt(m[2], 10) : stat.size - 1;
-            // Reject ranges past EOF or backwards. Spec-compliant 416 with
-            // Content-Range: bytes */<size>.
-            if (start >= stat.size || requestedEnd < start) {
-              res.writeHead(416, {
-                'Content-Range': `bytes */${stat.size}`,
-                'Access-Control-Allow-Origin': 'null',
-              });
-              res.end();
-              return;
-            }
-            const end = Math.min(requestedEnd, stat.size - 1);
-            headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
-            headers['Content-Length'] = end - start + 1;
-            res.writeHead(206, headers);
-            const rangeStream = fs.createReadStream(epubPath, { start, end });
-            pipeStreamToResponse(rangeStream, req, res);
-            return;
-          }
+        const range = parseRangeHeader(req.headers.range, stat.size);
+        if (range && range.status === 416) {
+          res.writeHead(416, { ...baseHeaders, ...range.headers });
+          res.end();
+          return;
         }
-        headers['Content-Length'] = stat.size;
-        res.writeHead(200, headers);
+        if (range && range.status === 206) {
+          res.writeHead(206, { ...baseHeaders, ...range.headers });
+          const rangeStream = fs.createReadStream(epubPath, { start: range.start, end: range.end });
+          pipeStreamToResponse(rangeStream, req, res);
+          return;
+        }
+        res.writeHead(200, { ...baseHeaders, 'Content-Length': stat.size });
         const epubStream = fs.createReadStream(epubPath);
         pipeStreamToResponse(epubStream, req, res);
         return;
@@ -1594,10 +1639,48 @@ ipcMain.handle('books:addPaths', async (_e, paths) => {
   return await addManyBooks(paths);
 });
 
-async function addManyBooks(paths) {
+// Bulk-import every supported ebook from a Calibre library. The user
+// picks the library root (a folder containing `metadata.db`), we enumerate
+// books via Calibre's own sqlite, then run them through the regular
+// addBook pipeline so dedup / cover extraction / EXTH normalize all
+// behave identically to a manual drag-drop. Per-book progress events
+// stream to the renderer over the `library:importProgress` channel so
+// the UI can render an X/N counter without blocking on the whole batch.
+ipcMain.handle('library:importCalibre', async () => {
+  const defaultPath = path.join(os.homedir(), 'Calibre Library');
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose your Calibre Library folder',
+    defaultPath: fs.existsSync(defaultPath) ? defaultPath : os.homedir(),
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const libraryRoot = result.filePaths[0];
+
+  let books;
+  try {
+    books = readCalibreLibrary(libraryRoot);
+  } catch (e) {
+    return { error: `Couldn't read Calibre library at ${libraryRoot}: ${e.message}` };
+  }
+  if (books.length === 0) {
+    return { error: 'No AZW3, MOBI or EPUB files found in this Calibre library.' };
+  }
+
+  const out = await addManyBooks(books.map(b => b.filePath), ({ done, total }) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('library:importProgress', { done, total });
+    }
+  });
+
+  if (out.added.length && mainWindow) mainWindow.webContents.send('books:changed');
+  return { ...out, total: books.length };
+});
+
+async function addManyBooks(paths, onProgress) {
   const added = [];
   const errors = [];
   const duplicates = [];
+  let done = 0;
   // Bounded parallelism. Each addBook spawns 1–3 Calibre processes
   // (convert, ebook-meta, sips); 2 in flight = up to ~6 child processes
   // peak, enough to feel snappy on a 10-book drop without thrashing.
@@ -1611,6 +1694,10 @@ async function addManyBooks(paths) {
       else if (result.error) errors.push({ path: path.basename(p), error: result.error });
     } catch (e) {
       errors.push({ path: path.basename(p), error: e.message });
+    }
+    done += 1;
+    if (onProgress) {
+      try { onProgress({ done, total: paths.length }); } catch {}
     }
   });
   return { added, errors, duplicates };
@@ -1630,6 +1717,34 @@ ipcMain.handle('server:info', () => {
     mdnsUrl: mdnsHost ? `http://${mdnsHost}:${PORT}/${serverToken}/` : null,
     running: !!server,
   };
+});
+
+// Pairing code (#34): peek issues a fresh code only when there isn't a
+// live one — otherwise the same code is returned with its remaining TTL,
+// so the renderer can poll without rotating the user out from under
+// themselves. rotate forces a new code (e.g. user typed it wrong on the
+// Kindle and wants to start over).
+function pairInfoPayload() {
+  let entry = pairStore.peek();
+  if (!entry) {
+    const code = pairStore.issue();
+    entry = pairStore.peek();
+    if (!entry) entry = { code, expiresAt: Date.now() + PAIR_TTL_MS };
+  }
+  const ip = getLocalIP();
+  return {
+    code: entry.code,
+    expiresAt: entry.expiresAt,
+    ttlMs: PAIR_TTL_MS,
+    pairUrl: `http://${ip}:${PORT}/pair/${entry.code}`,
+  };
+}
+
+ipcMain.handle('pair:current', () => pairInfoPayload());
+
+ipcMain.handle('pair:rotate', () => {
+  pairStore.issue();
+  return pairInfoPayload();
 });
 
 // ---------- Calibre detection ----------

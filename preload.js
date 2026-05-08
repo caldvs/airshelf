@@ -32,4 +32,10 @@ contextBridge.exposeInMainWorld('airshelf', {
     ipcRenderer.on('updater:downloaded', (_e, info) => cb(info));
   },
   installUpdate: () => ipcRenderer.invoke('updater:install'),
+  pairCurrent: () => ipcRenderer.invoke('pair:current'),
+  pairRotate: () => ipcRenderer.invoke('pair:rotate'),
+  importFromCalibre: () => ipcRenderer.invoke('library:importCalibre'),
+  onImportProgress: (cb) => {
+    ipcRenderer.on('library:importProgress', (_e, payload) => cb(payload));
+  },
 });
