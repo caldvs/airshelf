@@ -3,6 +3,10 @@ export interface Book {
   title: string;
   author: string | null;
   year: number | null;
+  /** Series name parsed from the original title's `(Series #N)` parenthetical, when present. */
+  series: string | null;
+  /** 1-based index within the series. Optional even when `series` is set — some books just say `(Series)`. */
+  seriesIndex: number | null;
   originalName: string;
   originalFile: string;
   file: string;
