@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rewriteExthSection, buildExthRecord } from './inject-asin.js';
+import { rewriteExthSection, buildExthRecord } from './out/integrations/inject-asin.js';
 
 // Build a minimal record0 buffer containing one MOBI header at offset 0
 // and an EXTH section right after, with the given list of records.

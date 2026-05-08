@@ -14,9 +14,9 @@
 //   PDB header:        https://wiki.mobileread.com/wiki/PDB
 //   MOBI/EXTH header:  https://wiki.mobileread.com/wiki/MOBI
 
-const fs = require('fs');
+import { readFileSync, writeFileSync } from 'fs';
 
-function buildExthRecord(type, data) {
+export function buildExthRecord(type: number, data: unknown): Buffer {
   const dataBuf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'latin1');
   const rec = Buffer.alloc(8 + dataBuf.length);
   rec.writeUInt32BE(type, 0);
@@ -25,8 +25,8 @@ function buildExthRecord(type, data) {
   return rec;
 }
 
-function findMobiHeaders(buf) {
-  const headers = [];
+function findMobiHeaders(buf: Buffer): number[] {
+  const headers: number[] = [];
   for (let i = 0; i + 4 <= buf.length; i++) {
     if (buf[i] === 0x4d && buf[i + 1] === 0x4f && buf[i + 2] === 0x42 && buf[i + 3] === 0x49) {
       headers.push(i);
@@ -35,9 +35,14 @@ function findMobiHeaders(buf) {
   return headers;
 }
 
+interface RewriteResult {
+  patched: Buffer;
+  delta: number;
+}
+
 // Rebuild a single EXTH section: replace 501 with PDOC, drop 504, keep
 // everything else. Returns { patched, delta }.
-function rewriteExthSection(record0, mobiHeaderOffset) {
+export function rewriteExthSection(record0: Buffer, mobiHeaderOffset: number): RewriteResult {
   const mobiHeaderLength = record0.readUInt32BE(mobiHeaderOffset + 4);
   const exthStart = mobiHeaderOffset + mobiHeaderLength;
   if (
@@ -58,7 +63,7 @@ function rewriteExthSection(record0, mobiHeaderOffset) {
   const exthRecordCount = record0.readUInt32BE(exthStart + 8);
 
   let cursor = exthStart + 12;
-  const kept = [];
+  const kept: Buffer[] = [];
   for (let i = 0; i < exthRecordCount; i++) {
     const type = record0.readUInt32BE(cursor);
     const len = record0.readUInt32BE(cursor + 4);
@@ -98,8 +103,8 @@ function rewriteExthSection(record0, mobiHeaderOffset) {
   return { patched: out, delta };
 }
 
-function normalizeKindleMetadata(filePath) {
-  const buf = fs.readFileSync(filePath);
+export function normalizeKindleMetadata(filePath: string): boolean {
+  const buf = readFileSync(filePath);
 
   const numRecords = buf.readUInt16BE(76);
   if (numRecords < 1) return false;
@@ -114,7 +119,7 @@ function normalizeKindleMetadata(filePath) {
     .map((o) => o - record0Start);
   if (mobisInRecord0.length === 0) return false;
 
-  let working = Buffer.from(originalRecord0);
+  let working: Buffer = Buffer.from(originalRecord0);
   let totalDelta = 0;
   for (const baseOffset of mobisInRecord0) {
     const offset = baseOffset + totalDelta;
@@ -131,8 +136,6 @@ function normalizeKindleMetadata(filePath) {
     out.writeUInt32BE(off + totalDelta, entryAt);
   }
 
-  fs.writeFileSync(filePath, out);
+  writeFileSync(filePath, out);
   return true;
 }
-
-module.exports = { normalizeKindleMetadata, rewriteExthSection, buildExthRecord };

@@ -61,7 +61,6 @@
     "files": [
       "main.js",
       "preload.js",
-      "inject-asin.js",
       "out/**/*",
       "calibre.js",
       "openlibrary.js",
