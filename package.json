@@ -64,7 +64,6 @@
       "out/**/*",
       "route-cover.js",
       "route-index.js",
-      "route-range.js",
       "route-epub.js",
       "route-download.js",
       "route-pair.js",
