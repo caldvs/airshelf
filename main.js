@@ -1408,7 +1408,15 @@ function startServer() {
       res.end(process.env.NODE_ENV === 'production' ? 'Error' : `Error: ${e.message}`);
     }
   });
-  server.listen(PORT, '0.0.0.0');
+  // Start mDNS only once `listen` actually succeeds — listen is async and
+  // we don't want to advertise a hostname that isn't accepting connections
+  // yet (or at all, if listen errors out). On error, undo any advertise
+  // that may have happened on a retry path.
+  server.listen(PORT, '0.0.0.0', () => startMdns());
+  server.on('error', (e) => {
+    console.error('[server] listen error', e);
+    stopMdns();
+  });
 }
 
 // Advertise the HTTP server over mDNS as `airshelf._http._tcp.local.` and
@@ -1434,8 +1442,13 @@ function startMdns() {
 
 function stopMdns() {
   if (!bonjour) return;
-  try { bonjour.unpublishAll(() => bonjour && bonjour.destroy()); } catch {}
+  // Capture the instance *before* nulling the global so the unpublishAll
+  // callback can still call destroy() — without this, the closure reads
+  // the (now null) global and the mDNS sockets are never torn down,
+  // which means goodbye packets aren't sent.
+  const b = bonjour;
   bonjour = null;
+  try { b.unpublishAll(() => b.destroy()); } catch {}
 }
 
 // ---------- Electron ----------
@@ -1468,8 +1481,10 @@ app.whenReady().then(() => {
   settingsFile = path.join(userData, 'settings.json');
   serverToken = loadOrCreateServerToken(userData);
 
+  // startServer() also wires startMdns() into the `listening` callback so
+  // we don't advertise a hostname before the HTTP server is accepting
+  // connections.
   startServer();
-  startMdns();
   createWindow();
   migrateExistingBooks().catch(e => console.error('migration error', e));
 
