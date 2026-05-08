@@ -1,6 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const Database = require('better-sqlite3');
+import { existsSync } from 'fs';
+import * as path from 'path';
+import Database from 'better-sqlite3';
 
 // Formats Airshelf is willing to import. Calibre may have many other formats
 // per book (PDF, ODT, original EPUB pre-conversion, etc.); we pick the one
@@ -8,7 +8,22 @@ const Database = require('better-sqlite3');
 // EPUB goes through Calibre conversion in addBook. Any format outside this
 // list is ignored — addBook can handle some others, but importing the entire
 // long tail tends to surface odd failures (DRM'd PDFs, scanned books, etc.).
-const FORMAT_PRIORITY = ['AZW3', 'MOBI', 'EPUB'];
+export const FORMAT_PRIORITY = ['AZW3', 'MOBI', 'EPUB'] as const;
+
+interface CalibreRow {
+  bookId: number;
+  title: string | null;
+  bookPath: string;
+  format: string;
+  dataName: string;
+  author: string | null;
+}
+
+export interface CalibreBook {
+  title: string;
+  author: string | null;
+  filePath: string;
+}
 
 // Read a Calibre library at `libraryRoot` and return the absolute paths of
 // every supported ebook, one per book (best format per book by FORMAT_PRIORITY).
@@ -18,14 +33,14 @@ const FORMAT_PRIORITY = ['AZW3', 'MOBI', 'EPUB'];
 // `data.name` is the basename (without extension), and `data.format` is the
 // uppercase format code (AZW3, MOBI, EPUB, …).
 //
-// Returns: [{ title, author, filePath }]. Author is the first linked author
-// (Calibre allows multiple) or null. Caller is expected to feed `filePath`
-// values to addBook — title/author are returned for progress UI only;
-// addBook re-derives them from file metadata so the import inherits the
-// same enrichment + dedup as a manual drag-drop.
-function readCalibreLibrary(libraryRoot) {
+// Author is the first linked author (Calibre allows multiple) or null.
+// Caller is expected to feed `filePath` values to addBook — title/author
+// are returned for progress UI only; addBook re-derives them from file
+// metadata so the import inherits the same enrichment + dedup as a
+// manual drag-drop.
+export function readCalibreLibrary(libraryRoot: string): CalibreBook[] {
   const dbPath = path.join(libraryRoot, 'metadata.db');
-  if (!fs.existsSync(dbPath)) {
+  if (!existsSync(dbPath)) {
     throw new Error(`No metadata.db at ${dbPath} — pick a Calibre library root.`);
   }
   // Resolve once so we can do containment checks on every assembled file
@@ -64,21 +79,23 @@ function readCalibreLibrary(libraryRoot) {
       ORDER BY b.id ASC
     `,
       )
-      .all();
+      .all() as CalibreRow[];
 
     // Pick the best format per book.
-    const byBook = new Map();
+    const byBook = new Map<number, CalibreRow>();
     for (const row of rows) {
-      const priority = FORMAT_PRIORITY.indexOf(row.format);
+      const priority = FORMAT_PRIORITY.indexOf(row.format as (typeof FORMAT_PRIORITY)[number]);
       if (priority < 0) continue;
       const existing = byBook.get(row.bookId);
-      const existingPriority = existing ? FORMAT_PRIORITY.indexOf(existing.format) : Infinity;
+      const existingPriority = existing
+        ? FORMAT_PRIORITY.indexOf(existing.format as (typeof FORMAT_PRIORITY)[number])
+        : Infinity;
       if (!existing || priority < existingPriority) {
         byBook.set(row.bookId, row);
       }
     }
 
-    const out = [];
+    const out: CalibreBook[] = [];
     for (const row of byBook.values()) {
       const filePath = path.resolve(
         root,
@@ -101,5 +118,3 @@ function readCalibreLibrary(libraryRoot) {
     db.close();
   }
 }
-
-module.exports = { readCalibreLibrary, FORMAT_PRIORITY };

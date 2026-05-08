@@ -9,7 +9,7 @@ const AdmZip = require('adm-zip');
 const { Bonjour } = require('bonjour-service');
 const { hashFileSha1 } = require('./out/lib/hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('./out/lib/concurrency.js');
-const { readCalibreLibrary } = require('./calibre.js');
+const { readCalibreLibrary } = require('./out/integrations/calibre.js');
 
 // FIFO around the two atomic load-then-write blocks in addBook (the
 // dedup check at the start, and the push-to-meta at the end). Concurrent
