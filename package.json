@@ -3,7 +3,7 @@
   "productName": "Airshelf",
   "version": "0.1.0",
   "description": "Airshelf — wirelessly send ebooks from your Mac to your Kindle",
-  "main": "main.js",
+  "main": "out/electron/main.js",
   "bin": {
     "airshelf": "bin/airshelf.js"
   },
@@ -59,7 +59,6 @@
     },
     "afterSign": "build/notarize.js",
     "files": [
-      "main.js",
       "out/**/*",
       "renderer/**/*",
       "build/icon.icns",
