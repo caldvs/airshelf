@@ -1962,21 +1962,6 @@ ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
   }
 });
 
-ipcMain.handle('cover:setFromFile', async (_e, bookId) => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Choose cover image',
-    properties: ['openFile'],
-    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }],
-  });
-  if (result.canceled || !result.filePaths[0]) return { canceled: true };
-  try {
-    const buf = fs.readFileSync(result.filePaths[0]);
-    return await setBookCoverFromBuffer(bookId, buf);
-  } catch (e) {
-    return { error: `Could not read file: ${e.message}` };
-  }
-});
-
 // ---------- Backup / restore ----------
 
 ipcMain.handle('library:backup', async () => {
