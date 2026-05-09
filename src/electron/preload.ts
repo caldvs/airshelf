@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('airshelf', {
   pairCurrent: () => ipcRenderer.invoke('pair:current'),
   pairRotate: () => ipcRenderer.invoke('pair:rotate'),
   importFromCalibre: () => ipcRenderer.invoke('library:importCalibre'),
+  importFromGoodreads: () => ipcRenderer.invoke('library:importGoodreads'),
   onImportProgress: (cb: (payload: unknown) => void) => {
     ipcRenderer.on('library:importProgress', (_e, payload) => cb(payload));
   },

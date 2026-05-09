@@ -17,6 +17,7 @@ const { Bonjour } = require('bonjour-service');
 const { hashFileSha1 } = require('../lib/hash.js');
 const { mapWithConcurrency, createSerialQueue } = require('../lib/concurrency.js');
 const { readCalibreLibrary } = require('../integrations/calibre.js');
+const { parseGoodreadsCsv } = require('../integrations/goodreads.js');
 
 // FIFO around the two atomic load-then-write blocks in addBook (the
 // dedup check at the start, and the push-to-meta at the end). Concurrent
@@ -1672,6 +1673,38 @@ ipcMain.handle('books:addPaths', async (_e, paths) => {
 // behave identically to a manual drag-drop. Per-book progress events
 // stream to the renderer over the `library:importProgress` channel so
 // the UI can render an X/N counter without blocking on the whole batch.
+// Pick a Goodreads `library_export.csv`, parse the "to-read" rows, and
+// hand them back to the renderer. This is the data-path slice of #40 —
+// downloading covers and wiring "Find ebook" against Open Library is
+// follow-up work. Returns one of:
+//   { canceled: true }
+//   { error: string }
+//   { entries: GoodreadsEntry[] }
+ipcMain.handle('library:importGoodreads', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Pick your Goodreads library_export.csv',
+    defaultPath: app.getPath('downloads'),
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const csvPath = result.filePaths[0];
+  let csv;
+  try {
+    csv = fs.readFileSync(csvPath, 'utf8');
+  } catch (e) {
+    return { error: `Couldn't read ${csvPath}: ${e.message}` };
+  }
+  const entries = parseGoodreadsCsv(csv);
+  if (entries.length === 0) {
+    return {
+      error:
+        'No "to-read" entries found. Make sure this is a Goodreads CSV export with the Title and Exclusive Shelf columns.',
+    };
+  }
+  return { entries };
+});
+
 ipcMain.handle('library:importCalibre', async () => {
   const defaultPath = path.join(os.homedir(), 'Calibre Library');
   const result = await dialog.showOpenDialog(mainWindow, {

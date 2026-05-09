@@ -742,6 +742,32 @@ if (btnCalibreImport && window.airshelf.importFromCalibre) {
   });
 }
 
+// ---- Goodreads import (#40 slice 2) ----
+// Data-path slice: pick a CSV, parse it, surface the count. Browsing the
+// list and the "Find ebook" button against Open Library are follow-up
+// slices; this one just proves the IPC + parser are wired.
+const btnGoodreadsImport = document.getElementById('btn-goodreads-import');
+if (btnGoodreadsImport && window.airshelf.importFromGoodreads) {
+  btnGoodreadsImport.addEventListener('click', async () => {
+    btnGoodreadsImport.disabled = true;
+    setBusy('Reading Goodreads CSV…');
+    try {
+      const r = await window.airshelf.importFromGoodreads();
+      if (r.canceled) return;
+      if (r.error) {
+        showToast(r.error, 'warn');
+        return;
+      }
+      console.log('[goodreads] parsed entries:', r.entries);
+      const n = r.entries.length;
+      showToast(`Found ${n} ${n === 1 ? 'book' : 'books'} on your "to-read" shelf`, 'success');
+    } finally {
+      setBusy(null);
+      btnGoodreadsImport.disabled = false;
+    }
+  });
+}
+
 // Listen for background migrations / changes from main
 if (window.airshelf.onBooksChanged) {
   window.airshelf.onBooksChanged(() => {
