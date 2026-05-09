@@ -33,13 +33,17 @@ export interface OpenLibraryDoc {
   edition_key?: string[];
 }
 
-export interface AddBookResult {
-  book?: Book;
-  error?: string;
-}
+// Discriminated union mirroring main.ts addBook(). Exactly one of book /
+// duplicate / error is set per result. Callers should pattern-match
+// rather than reading optional fields off a wide shape.
+export type AddBookResult =
+  | { book: Book; duplicate?: undefined; error?: undefined }
+  | { book?: undefined; duplicate: Book; error?: undefined }
+  | { book?: undefined; duplicate?: undefined; error: string };
 
 export interface AddManyResult {
   added: Book[];
+  duplicates: Array<{ path: string; title: string }>;
   errors: Array<{ path: string; error: string }>;
 }
 
