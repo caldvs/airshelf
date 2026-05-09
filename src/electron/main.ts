@@ -799,9 +799,22 @@ function listBooks() {
   return loadMeta().books.sort((a, b) => b.addedAt - a.addedAt);
 }
 
-// Convert any existing books that aren't Kindle-native to .mobi
+// Run all the per-book migration passes (hash backfill, series extract,
+// MOBI conversion, OL enrichment, cover resize, EXTH normalize, AZW3
+// rebuild) over the existing library. Each pass is internally guarded to
+// skip already-done books, but the loop iteration + per-book file checks
+// add up on a large library — so short-circuit if every book has cleared
+// the structural-migration flags. Enrichment is included in the
+// short-circuit: a book missing OL data after a previous attempt is
+// unlikely to find new data on a re-launch retry.
 async function migrateExistingBooks() {
   const meta = loadMeta();
+  if (
+    meta.books.length > 0 &&
+    meta.books.every((b) => b.hash && b.series !== undefined && b.exthNormalized && b.azw3Built)
+  ) {
+    return;
+  }
   let changed = false;
 
   // Backfill hashes for books that predate dedup tracking
