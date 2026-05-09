@@ -1,8 +1,13 @@
 // `/cover/<id>` route. Returns a small "decision" object so the http handler
 // in main.js can stay focused on (req, res) glue and this module stays
 // integration-testable without booting Electron or http.Server.
+//
+// 200 responses carry `filePath` rather than a Buffer body — the caller
+// pipes a read stream from it. Pre-loading the cover into memory was
+// per-request waste (covers can be ~60 KB each, and the Kindle index
+// renders N at once so memory usage scaled linearly with library size).
 
-import { existsSync, readFileSync, statSync } from 'fs';
+import { closeSync, openSync, readSync, Stats, statSync } from 'fs';
 import * as path from 'path';
 
 export const COVER_PATH_RE = /^\/cover\/([a-f0-9]+)$/;
@@ -51,7 +56,7 @@ interface CoverHeaders200 {
 export type CoverResponse =
   | { status: 404; body: string }
   | { status: 304; headers: CoverHeaders304 }
-  | { status: 200; body: Buffer; headers: CoverHeaders200 };
+  | { status: 200; filePath: string; headers: CoverHeaders200 };
 
 export function sniffImageType(buf: Buffer): string {
   if (buf.length >= 2) {
@@ -61,21 +66,38 @@ export function sniffImageType(buf: Buffer): string {
   return 'image/jpeg';
 }
 
+// Per-process cache of `{mtimeMs -> mime}` keyed by absolute file path.
+// Serving the bookshelf to a Kindle hits this route N times in a row;
+// caching the sniff result avoids re-opening the file just to read its
+// magic bytes when nothing has changed. Invalidates implicitly on
+// mtimeMs mismatch (covers are rewritten with a fresh mtime).
+const mimeCache = new Map<string, { mtimeMs: number; mime: string }>();
+
+function readMimeFromHead(filePath: string): string {
+  const fd = openSync(filePath, 'r');
+  try {
+    const head = Buffer.alloc(8);
+    readSync(fd, head, 0, 8, 0);
+    return sniffImageType(head);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function cachedMime(filePath: string, stat: Stats): string {
+  const cached = mimeCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs) return cached.mime;
+  const mime = readMimeFromHead(filePath);
+  mimeCache.set(filePath, { mtimeMs: stat.mtimeMs, mime });
+  return mime;
+}
+
 // Returns one of:
-//   null                                   — subPath does not match /cover/<hex>;
-//                                            caller should keep matching routes
-//   { status: 404, body }                  — matched, but cover is missing
-//                                            (no entry, no cover field, or file
-//                                            not on disk)
-//   { status: 304, headers }               — client has the current copy
-//   { status: 200, body: Buffer, headers } — image bytes
-//
-// Inputs:
-//   subPath          — e.g. "/cover/abc123"
-//   books            — list of book metadata objects (from listBooks())
-//   booksDir         — absolute path to the books directory
-//   ifNoneMatch      — value of the `If-None-Match` request header (or undefined)
-//   ifModifiedSince  — value of the `If-Modified-Since` request header
+//   null                                     — subPath does not match /cover/<hex>;
+//                                              caller should keep matching routes
+//   { status: 404, body }                    — matched, but cover is missing
+//   { status: 304, headers }                 — client has the current copy
+//   { status: 200, filePath, headers }       — caller should stream filePath
 export function handleCoverRequest({
   subPath,
   books,
@@ -91,10 +113,14 @@ export function handleCoverRequest({
     return { status: 404, body: 'No cover' };
   }
   const coverPath = path.join(booksDir, book.cover);
-  if (!existsSync(coverPath)) {
+  // statSync throws ENOENT on missing files — one syscall covers both
+  // the existence check and metadata read.
+  let stat: Stats;
+  try {
+    stat = statSync(coverPath);
+  } catch {
     return { status: 404, body: 'Missing' };
   }
-  const stat = statSync(coverPath);
   const etag = `"${id}-${stat.size}-${Math.floor(stat.mtimeMs)}"`;
   const lastModified = stat.mtime.toUTCString();
 
@@ -108,13 +134,12 @@ export function handleCoverRequest({
     };
   }
 
-  const buf = readFileSync(coverPath);
   return {
     status: 200,
-    body: buf,
+    filePath: coverPath,
     headers: {
-      'Content-Type': sniffImageType(buf),
-      'Content-Length': buf.length,
+      'Content-Type': cachedMime(coverPath, stat),
+      'Content-Length': stat.size,
       'Cache-Control': CACHE_CONTROL,
       ETag: etag,
       'Last-Modified': lastModified,

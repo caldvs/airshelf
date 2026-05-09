@@ -79,7 +79,8 @@ describe('handleCoverRequest', () => {
     expect(r.headers['Content-Length']).toBe(JPEG.length);
     expect(r.headers['Cache-Control']).toContain('immutable');
     expect(r.headers.ETag).toMatch(/^"abc123-\d+-\d+"$/);
-    expect(r.body.equals(JPEG)).toBe(true);
+    // Caller streams from filePath; assert it points at the right cover.
+    expect(fs.readFileSync(r.filePath).equals(JPEG)).toBe(true);
   });
 
   it('detects PNG and GIF magic bytes', () => {

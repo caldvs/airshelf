@@ -1409,7 +1409,14 @@ function startServer() {
         ifModifiedSince: req.headers['if-modified-since'],
       });
       if (coverDecision) {
-        if (coverDecision.body !== undefined) {
+        if (coverDecision.status === 200) {
+          res.writeHead(coverDecision.status, coverDecision.headers);
+          // Stream the file body instead of buffering. Covers are small
+          // (~60 KB after sips resize) but a Kindle index page hits this
+          // route N times back-to-back; streaming keeps the per-request
+          // memory footprint flat and lets the OS page cache do its job.
+          pipeStreamToResponse(fs.createReadStream(coverDecision.filePath), req, res);
+        } else if (coverDecision.body !== undefined) {
           res.writeHead(coverDecision.status, coverDecision.headers || {});
           res.end(coverDecision.body);
         } else {
