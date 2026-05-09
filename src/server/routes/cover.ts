@@ -34,6 +34,17 @@ interface HandleCoverArgs {
   ifModifiedSince?: string | string[] | undefined;
 }
 
+// Parse an If-None-Match header value into the set of ETags it carries.
+// Accepts both forms RFC 7232 allows: a single string with comma-
+// separated entries (`"a", "b"`) and the Node array form (`['"a"', '"b"']`).
+// Strips the optional weak `W/` prefix so a server-strong / client-weak
+// pair still matches. Returns an empty array on `undefined` / empty.
+function parseIfNoneMatch(v: string | string[] | undefined): string[] {
+  if (v == null) return [];
+  const parts = Array.isArray(v) ? v.flatMap((s) => s.split(',')) : v.split(',');
+  return parts.map((s) => s.trim().replace(/^W\//, '')).filter((s) => s.length > 0);
+}
+
 function firstHeaderValue(v: string | string[] | undefined): string | undefined {
   if (Array.isArray(v)) return v[0];
   return v;
@@ -124,10 +135,13 @@ export function handleCoverRequest({
   const etag = `"${id}-${stat.size}-${Math.floor(stat.mtimeMs)}"`;
   const lastModified = stat.mtime.toUTCString();
 
-  if (
-    firstHeaderValue(ifNoneMatch) === etag ||
-    firstHeaderValue(ifModifiedSince) === lastModified
-  ) {
+  // If-None-Match per RFC 7232: comma-separated list, weak validators
+  // allowed. `*` wildcard matches any current representation. We match if
+  // any client-supplied tag equals our strong etag (after stripping the
+  // weak prefix on both sides — the server only emits strong tags).
+  const inmTags = parseIfNoneMatch(ifNoneMatch);
+  const ifNoneMatchHit = inmTags.includes('*') || inmTags.includes(etag);
+  if (ifNoneMatchHit || firstHeaderValue(ifModifiedSince) === lastModified) {
     return {
       status: 304,
       headers: { ETag: etag, 'Cache-Control': CACHE_CONTROL },
