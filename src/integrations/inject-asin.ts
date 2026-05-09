@@ -14,7 +14,7 @@
 //   PDB header:        https://wiki.mobileread.com/wiki/PDB
 //   MOBI/EXTH header:  https://wiki.mobileread.com/wiki/MOBI
 
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, renameSync, writeFileSync } from 'fs';
 
 export function buildExthRecord(type: number, data: unknown): Buffer {
   const dataBuf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'latin1');
@@ -136,6 +136,12 @@ export function normalizeKindleMetadata(filePath: string): boolean {
     out.writeUInt32BE(off + totalDelta, entryAt);
   }
 
-  writeFileSync(filePath, out);
+  // Atomic write: tmp file + rename. A crash mid-write would otherwise
+  // leave the served book corrupt — and this function is called over
+  // every existing book during the migrateExistingBooks backfill, so a
+  // crash there would silently destroy a chunk of the user's library.
+  const tmp = `${filePath}.tmp`;
+  writeFileSync(tmp, out);
+  renameSync(tmp, filePath);
   return true;
 }

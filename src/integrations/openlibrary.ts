@@ -175,15 +175,22 @@ export async function downloadOpenLibraryCover(
   return false;
 }
 
+// OL works keys are returned in the shape `/works/OL\d+W`. We pin to that
+// shape so a malicious / compromised search response can't push the
+// description fetch at an attacker host (e.g. `doc.key = "//evil.com/x"`
+// would resolve `https://openlibrary.org//evil.com/x.json` against most
+// path-joiners, redirecting the request).
+const OL_WORKS_KEY_RE = /^\/works\/OL\d+W$/;
+
 // Fetch a description for a book from Open Library's works API. Returns
-// null on any failure path: missing `key`, network error, missing
-// description, or unrecognised description shape.
+// null on any failure path: missing/malformed `key`, network error,
+// missing description, or unrecognised description shape.
 export async function fetchOpenLibraryDescription(
   doc: OpenLibraryDoc | null | undefined,
   deps: FetchDeps = {},
 ): Promise<string | null> {
   const fetchFn = deps.fetch || fetch;
-  if (!doc || !doc.key) return null;
+  if (!doc || typeof doc.key !== 'string' || !OL_WORKS_KEY_RE.test(doc.key)) return null;
   try {
     const res = await fetchFn(`${WORKS_BASE}${doc.key}.json`);
     if (!res.ok) return null;

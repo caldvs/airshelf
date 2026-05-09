@@ -79,7 +79,8 @@ describe('handleCoverRequest', () => {
     expect(r.headers['Content-Length']).toBe(JPEG.length);
     expect(r.headers['Cache-Control']).toContain('immutable');
     expect(r.headers.ETag).toMatch(/^"abc123-\d+-\d+"$/);
-    expect(r.body.equals(JPEG)).toBe(true);
+    // Caller streams from filePath; assert it points at the right cover.
+    expect(fs.readFileSync(r.filePath).equals(JPEG)).toBe(true);
   });
 
   it('detects PNG and GIF magic bytes', () => {
@@ -118,6 +119,50 @@ describe('handleCoverRequest', () => {
     expect(cached.status).toBe(304);
     expect(cached.headers.ETag).toBe(fresh.headers.ETag);
     expect(cached.body).toBeUndefined();
+  });
+
+  it('returns 304 when If-None-Match is a comma-separated list including the etag', () => {
+    const cover = writeCover('abc123', JPEG);
+    const fresh = handleCoverRequest({
+      subPath: '/cover/abc123',
+      books: [{ id: 'abc123', cover }],
+      booksDir,
+    });
+    // Browser sends `"a", "b", "<our-etag>"` — RFC 7232 allows.
+    const cached = handleCoverRequest({
+      subPath: '/cover/abc123',
+      books: [{ id: 'abc123', cover }],
+      booksDir,
+      ifNoneMatch: `"stale1", "stale2", ${fresh.headers.ETag}`,
+    });
+    expect(cached.status).toBe(304);
+  });
+
+  it('returns 304 when If-None-Match is the * wildcard', () => {
+    const cover = writeCover('abc123', JPEG);
+    const cached = handleCoverRequest({
+      subPath: '/cover/abc123',
+      books: [{ id: 'abc123', cover }],
+      booksDir,
+      ifNoneMatch: '*',
+    });
+    expect(cached.status).toBe(304);
+  });
+
+  it('strips W/ weak prefix when matching If-None-Match', () => {
+    const cover = writeCover('abc123', JPEG);
+    const fresh = handleCoverRequest({
+      subPath: '/cover/abc123',
+      books: [{ id: 'abc123', cover }],
+      booksDir,
+    });
+    const cached = handleCoverRequest({
+      subPath: '/cover/abc123',
+      books: [{ id: 'abc123', cover }],
+      booksDir,
+      ifNoneMatch: `W/${fresh.headers.ETag}`,
+    });
+    expect(cached.status).toBe(304);
   });
 
   it('returns 304 when If-Modified-Since matches', () => {

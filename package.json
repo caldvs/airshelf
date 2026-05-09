@@ -62,8 +62,7 @@
       "out/**/*",
       "renderer/**/*",
       "build/icon.icns",
-      "build/icon_256.png",
-      "node_modules/**/*"
+      "build/icon_256.png"
     ]
   },
   "devDependencies": {

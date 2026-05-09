@@ -35,11 +35,11 @@ describe('PAIR_PATH_RE / parsePairPath', () => {
 });
 
 describe('buildPairCookie', () => {
-  it('contains the token, HttpOnly, SameSite=Lax, Path=/, and a year-long Max-Age', () => {
+  it('contains the token, HttpOnly, SameSite=Strict, Path=/, and a year-long Max-Age', () => {
     const c = buildPairCookie('badera');
     expect(c).toMatch(/^airshelf_token=badera/);
     expect(c).toMatch(/HttpOnly/);
-    expect(c).toMatch(/SameSite=Lax/);
+    expect(c).toMatch(/SameSite=Strict/);
     expect(c).toMatch(/Path=\//);
     // 31_536_000 = seconds in 365 days.
     expect(c).toMatch(/Max-Age=31536000/);

@@ -122,6 +122,42 @@ export function isPrivateIp(ip: string): boolean {
   return true; // unknown / unparseable — fail closed
 }
 
+// Strict loopback predicate. Matches anything in 127.0.0.0/8, the IPv6
+// loopback ::1 (in any textual form including the full 0:0:0:0:0:0:0:1),
+// and the IPv4-mapped IPv6 forms ::ffff:127.x.x.x. Accepts unknown
+// inputs as not-loopback (caller decides whether that's pass or fail).
+//
+// Used by mutating HTTP routes (e.g. /upload) to gate write access to
+// the local process, since the server listens on 0.0.0.0 so the Kindle
+// can reach read-only routes over the LAN.
+export function isLoopbackIp(ip: unknown): boolean {
+  if (typeof ip !== 'string') return false;
+  if (net.isIPv4(ip)) return inV4Range(ip, '127.0.0.0/8');
+  if (net.isIPv6(ip)) {
+    const g = parseIpv6(ip);
+    if (!g) return false;
+    // ::1 in any form (handles 0:0:0:0:0:0:0:1 too via parseIpv6)
+    if (
+      g[0] === 0 &&
+      g[1] === 0 &&
+      g[2] === 0 &&
+      g[3] === 0 &&
+      g[4] === 0 &&
+      g[5] === 0 &&
+      g[6] === 0 &&
+      g[7] === 1
+    )
+      return true;
+    // ::ffff:127.x.x.x — IPv4-mapped IPv6 in the loopback range.
+    if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0xffff) {
+      const firstOctet = (g[6] >> 8) & 0xff;
+      return firstOctet === 127;
+    }
+    return false;
+  }
+  return false;
+}
+
 // --- URL validation ---------------------------------------------------------
 
 const INTERNAL_HOST_SUFFIXES = ['.localhost', '.local'];

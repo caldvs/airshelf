@@ -343,7 +343,12 @@ async function getOrBuildReaderEpub(book) {
   return p;
 }
 
-const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('../lib/safety.js');
+const {
+  assertExternalUrl,
+  isSafeExternalScheme,
+  isSafeBasename,
+  isLoopbackIp,
+} = require('../lib/safety.js');
 const { buildManifest, validateBackup } = require('../domain/backup.js');
 const {
   tokensMatch,
@@ -794,9 +799,22 @@ function listBooks() {
   return loadMeta().books.sort((a, b) => b.addedAt - a.addedAt);
 }
 
-// Convert any existing books that aren't Kindle-native to .mobi
+// Run all the per-book migration passes (hash backfill, series extract,
+// MOBI conversion, OL enrichment, cover resize, EXTH normalize, AZW3
+// rebuild) over the existing library. Each pass is internally guarded to
+// skip already-done books, but the loop iteration + per-book file checks
+// add up on a large library — so short-circuit if every book has cleared
+// the structural-migration flags. Enrichment is included in the
+// short-circuit: a book missing OL data after a previous attempt is
+// unlikely to find new data on a re-launch retry.
 async function migrateExistingBooks() {
   const meta = loadMeta();
+  if (
+    meta.books.length > 0 &&
+    meta.books.every((b) => b.hash && b.series !== undefined && b.exthNormalized && b.azw3Built)
+  ) {
+    return;
+  }
   let changed = false;
 
   // Backfill hashes for books that predate dedup tracking
@@ -1063,11 +1081,9 @@ async function migrateExistingBooks() {
 
 // Loopback gate for write-side endpoints (#37 /upload). The server listens
 // on 0.0.0.0 so the Kindle can read; we don't want to expose mutating
-// routes on the LAN under just the ~20-bit token.
-function isLoopback(addr) {
-  if (typeof addr !== 'string') return false;
-  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
-}
+// routes on the LAN under just the ~20-bit token. Delegates to safety.ts
+// which handles 127.0.0.0/8, every textual form of ::1, and ::ffff:127.x.
+const isLoopback = isLoopbackIp;
 
 // Renders a static mock of the Electron bookshelf UI — used only for the
 // README screenshot. It is served from /screenshot in the same HTTP server.
@@ -1393,7 +1409,14 @@ function startServer() {
         ifModifiedSince: req.headers['if-modified-since'],
       });
       if (coverDecision) {
-        if (coverDecision.body !== undefined) {
+        if (coverDecision.status === 200) {
+          res.writeHead(coverDecision.status, coverDecision.headers);
+          // Stream the file body instead of buffering. Covers are small
+          // (~60 KB after sips resize) but a Kindle index page hits this
+          // route N times back-to-back; streaming keeps the per-request
+          // memory footprint flat and lets the OS page cache do its job.
+          pipeStreamToResponse(fs.createReadStream(coverDecision.filePath), req, res);
+        } else if (coverDecision.body !== undefined) {
           res.writeHead(coverDecision.status, coverDecision.headers || {});
           res.end(coverDecision.body);
         } else {
@@ -1912,6 +1935,12 @@ async function setBookCoverFromBuffer(bookId, buf) {
   return { ok: true };
 }
 
+// Cap on cover-image downloads. Real book covers are well under 1 MB;
+// 8 MB leaves headroom for high-DPI scans without letting a malicious /
+// misconfigured URL stream gigabytes into the main process and OOM it.
+const MAX_COVER_BYTES = 8 * 1024 * 1024;
+const COVER_FETCH_TIMEOUT_MS = 15_000;
+
 ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
   if (!url || typeof url !== 'string') return { error: 'No URL provided.' };
   // Validates scheme + DNS-resolves to block SSRF against LAN/loopback/
@@ -1921,30 +1950,59 @@ ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
   } catch (e) {
     return { error: e.message };
   }
+  // One controller covers both the fetch timeout and the size-overflow
+  // abort below. Using AbortSignal.timeout alone would leave a slow-loris
+  // connection open until timeout fires; aborting the controller as soon
+  // as we hit the size cap releases the socket immediately.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), COVER_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': 'Airshelf/0.1' } });
-    if (!res.ok) return { error: `Server returned ${res.status}.` };
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Airshelf/0.1' },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      controller.abort();
+      return { error: `Server returned ${res.status}.` };
+    }
     const ct = res.headers.get('content-type') || '';
-    if (!ct.startsWith('image/')) return { error: `Not an image (got ${ct || 'unknown'}).` };
-    const buf = Buffer.from(await res.arrayBuffer());
+    if (!ct.startsWith('image/')) {
+      controller.abort();
+      return { error: `Not an image (got ${ct || 'unknown'}).` };
+    }
+    // Reject early if the server declared an oversized payload, so we
+    // don't even start allocating Buffers for it.
+    const declared = parseInt(res.headers.get('content-length') || '', 10);
+    if (Number.isFinite(declared) && declared > MAX_COVER_BYTES) {
+      controller.abort();
+      return { error: `Image too large (${declared} bytes, max ${MAX_COVER_BYTES}).` };
+    }
+    if (!res.body) {
+      // Some fetch implementations may yield a null body for empty
+      // responses. Treat as "no content" rather than crashing the
+      // for-await with a TypeError.
+      return { error: 'Server returned an empty body.' };
+    }
+    // Stream + cap. Servers may omit or lie about Content-Length, so the
+    // mid-stream counter is the authoritative guard. Aborting the
+    // controller closes the socket so a slow-loris can't keep us
+    // streaming after we've already decided to stop.
+    const chunks = [];
+    let received = 0;
+    for await (const chunk of res.body) {
+      received += chunk.length;
+      if (received > MAX_COVER_BYTES) {
+        controller.abort();
+        return { error: `Image too large (over ${MAX_COVER_BYTES} bytes).` };
+      }
+      chunks.push(chunk);
+    }
+    const buf = Buffer.concat(chunks);
     return await setBookCoverFromBuffer(bookId, buf);
   } catch (e) {
     return { error: `Download failed: ${e.message}` };
-  }
-});
-
-ipcMain.handle('cover:setFromFile', async (_e, bookId) => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Choose cover image',
-    properties: ['openFile'],
-    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }],
-  });
-  if (result.canceled || !result.filePaths[0]) return { canceled: true };
-  try {
-    const buf = fs.readFileSync(result.filePaths[0]);
-    return await setBookCoverFromBuffer(bookId, buf);
-  } catch (e) {
-    return { error: `Could not read file: ${e.message}` };
+  } finally {
+    clearTimeout(timeoutId);
   }
 });
 
