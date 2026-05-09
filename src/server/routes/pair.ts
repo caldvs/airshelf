@@ -34,9 +34,12 @@ export function buildPairCookie(token: string): string {
   // 1 year is well past the practical lifetime of the running app and
   // matches "rotate token to revoke" rather than "expire cookie
   // independently". HttpOnly because the renderer doesn't need cookie
-  // access; SameSite=Lax so the redirect from /pair/<CODE> still
-  // attaches the cookie on the followup request to /<token>/.
-  return `airshelf_token=${token}; Max-Age=31536000; HttpOnly; SameSite=Lax; Path=/`;
+  // access. SameSite=Strict so a cross-origin link to
+  // http://airshelf.local:6790/ can't trigger the bare-URL handler's
+  // cookie-driven 302 to /<token>/ — that would leak the long token
+  // into the browser's URL bar / history / Referer. The legitimate
+  // /pair/<CODE> -> /<token>/ redirect is same-site and still works.
+  return `airshelf_token=${token}; Max-Age=31536000; HttpOnly; SameSite=Strict; Path=/`;
 }
 
 // Structural type — matches the `consume` method on the PairCodeStore
