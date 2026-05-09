@@ -12,9 +12,15 @@ npm test -- auth.test.mjs       # single file
 
 ## Architecture
 
-- `main.js`, `preload.js`, `inject-asin.js`. Hand-written JS at root. `main.js` is the Electron main process; `preload.js` bridges renderer↔main via `contextBridge`; `inject-asin.js` runs inside Amazon's Send-to-Kindle page.
-- `src/*.ts`. TS modules organised by role: `src/lib/` for pure helpers (hash, concurrency, utils, safety, titles), `src/domain/` for domain logic (auth, …). Compiled to `out/` via `tsc` and imported by root `.js` files (e.g. `require('./out/lib/hash.js')`). `prestart`/`prebuild`/`pretest` hooks run `npm run compile` (rimraf out && tsc).
-- `renderer/`. UI (HTML/CSS/vanilla JS, no framework).
+- `src/electron/main.ts` — Electron main process. Compiled to `out/electron/main.js`; `package.json` `"main"` points there.
+- `src/electron/preload.ts` — bridges renderer↔main via `contextBridge`. Compiled to `out/electron/preload.js`; loaded by main via `path.join(__dirname, 'preload.js')` (sibling).
+- `src/lib/` — pure helpers (hash, concurrency, utils, safety, titles).
+- `src/domain/` — domain logic (auth, pair, settings, backup).
+- `src/integrations/` — external integrations (calibre, openlibrary, goodreads, inject-asin).
+- `src/server/routes/` — HTTP route modules (auth, range, download, pair, upload, cover, epub, index).
+- `tsc` compiles `src/` → `out/` preserving structure. `prestart`/`prebuild`/`pretest` hooks run `npm run compile` (rimraf out && tsc).
+- App-rooted paths use `app.getAppPath()` (application root: repo root in dev, `app.asar` bundle in prod) — not `__dirname` (which inside the compiled main is `out/electron/`). Anything resolved this way must be present in `package.json` `build.files` so it's bundled into the asar.
+- `renderer/`. UI (HTML/CSS/vanilla JS, no framework). Loaded via `app.getAppPath()`.
 
 ## Don'ts
 

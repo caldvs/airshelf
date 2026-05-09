@@ -1,3 +1,10 @@
+// @ts-nocheck
+//
+// First-pass TS migration of the Electron entry point. Type-checking is
+// deferred — `// @ts-nocheck` keeps the file in TS form so future PRs can
+// incrementally type sections. Removing the directive then attacking the
+// errors block-by-block (HTTP server, IPC handlers, addBook, migrations)
+// is the natural follow-up.
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -7,9 +14,9 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const AdmZip = require('adm-zip');
 const { Bonjour } = require('bonjour-service');
-const { hashFileSha1 } = require('./out/lib/hash.js');
-const { mapWithConcurrency, createSerialQueue } = require('./out/lib/concurrency.js');
-const { readCalibreLibrary } = require('./out/integrations/calibre.js');
+const { hashFileSha1 } = require('../lib/hash.js');
+const { mapWithConcurrency, createSerialQueue } = require('../lib/concurrency.js');
+const { readCalibreLibrary } = require('../integrations/calibre.js');
 
 // FIFO around the two atomic load-then-write blocks in addBook (the
 // dedup check at the start, and the push-to-meta at the end). Concurrent
@@ -32,19 +39,19 @@ app.setAboutPanelOptions({
   applicationVersion: '0.1.0',
   version: '',
   copyright: 'Send ebooks to your Kindle over Wi-Fi',
-  iconPath: path.join(__dirname, 'build', 'icon_256.png'),
+  iconPath: path.join(app.getAppPath(), 'build', 'icon_256.png'),
 });
 
 const PORT = parseInt(process.env.PORT, 10) || 6790;
 
 // Files the Kindle experimental browser can download directly
-const { normalizeKindleMetadata } = require('./out/integrations/inject-asin.js');
+const { normalizeKindleMetadata } = require('../integrations/inject-asin.js');
 const {
   titlesMatch,
   cleanTitle,
   extractSeries,
   guessAuthorFromFilename,
-} = require('./out/lib/titles.js');
+} = require('../lib/titles.js');
 
 const KINDLE_NATIVE_EXTS = ['.azw3', '.mobi', '.prc', '.azw', '.txt'];
 // Extra formats Calibre can convert to MOBI for us
@@ -335,23 +342,23 @@ async function getOrBuildReaderEpub(book) {
   return p;
 }
 
-const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('./out/lib/safety.js');
-const { buildManifest, validateBackup } = require('./out/domain/backup.js');
+const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('../lib/safety.js');
+const { buildManifest, validateBackup } = require('../domain/backup.js');
 const {
   tokensMatch,
   loadOrCreateServerToken,
   rotateServerToken,
   FailedAuthLimiter,
-} = require('./out/domain/auth.js');
-const { PairCodeStore, PAIR_TTL_MS } = require('./out/domain/pair.js');
-const { authoriseRequest } = require('./out/server/routes/auth.js');
-const { handlePairRequest } = require('./out/server/routes/pair.js');
-const { validateUploadRequest, MAX_UPLOAD_BYTES } = require('./out/server/routes/upload.js');
-const { humanSize, escapeHtml, getLocalIP } = require('./out/lib/utils.js');
-const { handleCoverRequest } = require('./out/server/routes/cover.js');
-const { handleEpubRequest } = require('./out/server/routes/epub.js');
-const { renderShelfHtml } = require('./out/server/routes/index.js');
-const { prepareDownloadResponse } = require('./out/server/routes/download.js');
+} = require('../domain/auth.js');
+const { PairCodeStore, PAIR_TTL_MS } = require('../domain/pair.js');
+const { authoriseRequest } = require('../server/routes/auth.js');
+const { handlePairRequest } = require('../server/routes/pair.js');
+const { validateUploadRequest, MAX_UPLOAD_BYTES } = require('../server/routes/upload.js');
+const { humanSize, escapeHtml, getLocalIP } = require('../lib/utils.js');
+const { handleCoverRequest } = require('../server/routes/cover.js');
+const { handleEpubRequest } = require('../server/routes/epub.js');
+const { renderShelfHtml } = require('../server/routes/index.js');
+const { prepareDownloadResponse } = require('../server/routes/download.js');
 
 // Scan the Cookie header for any host-only `airshelf_token` value matching the
 // current server token. Browsers can send duplicate cookie names (for example
@@ -389,7 +396,7 @@ const MDNS_HOST = 'airshelf';
 // known, swap to a file-backed store and migrate any pre-init writes
 // across so nothing is lost.
 
-const { createSettingsStore } = require('./out/domain/settings.js');
+const { createSettingsStore } = require('../domain/settings.js');
 let settingsStore = createSettingsStore(null);
 
 function loadSettings() {
@@ -561,7 +568,7 @@ const {
   searchOpenLibrary,
   downloadOpenLibraryCover,
   fetchOpenLibraryDescription,
-} = require('./out/integrations/openlibrary.js');
+} = require('../integrations/openlibrary.js');
 
 // `displayName` lets the /upload route preserve the user's filename for
 // title/author fallback even though the actual srcPath is a randomised
@@ -1077,7 +1084,7 @@ function renderScreenshotHtml() {
     })
     .join('');
 
-  const cssPath = path.join(__dirname, 'renderer', 'style.css');
+  const cssPath = path.join(app.getAppPath(), 'renderer', 'style.css');
   const css = fs.readFileSync(cssPath, 'utf8');
 
   return `<!doctype html>
@@ -1496,21 +1503,21 @@ function createWindow() {
     height: 720,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#ececec',
-    icon: path.join(__dirname, 'build', 'icon.icns'),
+    icon: path.join(app.getAppPath(), 'build', 'icon.icns'),
     webPreferences: {
-      preload: path.join(__dirname, 'out', 'electron', 'preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.loadFile(path.join(app.getAppPath(), 'renderer', 'index.html'));
 }
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) {
     try {
-      app.dock.setIcon(path.join(__dirname, 'build', 'icon.icns'));
+      app.dock.setIcon(path.join(app.getAppPath(), 'build', 'icon.icns'));
     } catch {}
   }
   const userData = app.getPath('userData');
