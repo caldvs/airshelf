@@ -128,13 +128,17 @@
     const epubUrl = await buildEpubUrl(bookMeta.id);
     console.log('[reader] opening book', bookMeta.id);
     try {
-      // Fetch the bytes ourselves so we get a real error instead of an
-      // opaque epubjs failure if the URL/CORS misbehaves.
-      const resp = await fetch(epubUrl);
-      if (!resp.ok) throw new Error(`server returned ${resp.status}`);
-      const ab = await resp.arrayBuffer();
-      console.log('[reader] fetched', ab.byteLength, 'bytes');
-      book = ePub(ab);
+      // Probe the URL with a 1-byte range request so a misbehaving
+      // server / CORS surfaces a real HTTP error here rather than
+      // an opaque epubjs failure later. The actual book bytes are
+      // streamed lazily by epubjs via further range requests when
+      // we hand it the URL — no need to slurp the whole file into
+      // an ArrayBuffer (a 50 MB EPUB OOM'd or stalled the renderer).
+      const probe = await fetch(epubUrl, { headers: { Range: 'bytes=0-0' } });
+      if (!probe.ok) throw new Error(`server returned ${probe.status}`);
+      // Consume the probe body so the connection releases promptly.
+      await probe.arrayBuffer();
+      book = ePub(epubUrl);
     } catch (e) {
       console.error('[reader] fetch failed', e);
       const errorMessage = e?.message ?? String(e);
