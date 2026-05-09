@@ -742,10 +742,42 @@ if (btnCalibreImport && window.airshelf.importFromCalibre) {
   });
 }
 
-// ---- Goodreads import (#40 slice 2) ----
-// Data-path slice: pick a CSV, parse it, surface the count. Browsing the
-// list and the "Find ebook" button against Open Library are follow-up
-// slices; this one just proves the IPC + parser are wired.
+// ---- Wishlist (#40 slice 3) ----
+// Renders parsed Goodreads entries in the Wishlist tab. Entries are kept
+// in memory only — the user re-imports the CSV each launch. Persisting
+// the list, fetching covers, and the "Find ebook" button are follow-up
+// slices.
+const wishlistEmpty = document.getElementById('wishlist-empty');
+const wishlistList = document.getElementById('wishlist-list');
+
+function renderWishlist(entries) {
+  wishlistList.innerHTML = '';
+  for (const entry of entries) {
+    const row = document.createElement('div');
+    row.className = 'wishlist-row';
+    row.setAttribute('role', 'listitem');
+
+    const title = document.createElement('div');
+    title.className = 'wishlist-row-title';
+    title.textContent = entry.title;
+    row.appendChild(title);
+
+    if (entry.author || entry.year) {
+      const meta = document.createElement('div');
+      meta.className = 'wishlist-row-meta';
+      const parts = [];
+      if (entry.author) parts.push(entry.author);
+      if (entry.year) parts.push(String(entry.year));
+      meta.textContent = parts.join(' · ');
+      row.appendChild(meta);
+    }
+
+    wishlistList.appendChild(row);
+  }
+  wishlistEmpty.classList.add('hidden');
+  wishlistList.classList.remove('hidden');
+}
+
 const btnGoodreadsImport = document.getElementById('btn-goodreads-import');
 if (btnGoodreadsImport && window.airshelf.importFromGoodreads) {
   btnGoodreadsImport.addEventListener('click', async () => {
@@ -758,9 +790,9 @@ if (btnGoodreadsImport && window.airshelf.importFromGoodreads) {
         showToast(r.error, 'warn');
         return;
       }
-      console.log('[goodreads] parsed entries:', r.entries);
+      renderWishlist(r.entries);
       const n = r.entries.length;
-      showToast(`Found ${n} ${n === 1 ? 'book' : 'books'} on your "to-read" shelf`, 'success');
+      showToast(`Imported ${n} ${n === 1 ? 'book' : 'books'} from Goodreads`, 'success');
     } finally {
       setBusy(null);
       btnGoodreadsImport.disabled = false;

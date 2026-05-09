@@ -170,6 +170,30 @@
           </div>
         </section>
 
+        <!-- Wishlist view (#40) -->
+        <section class="view hidden" id="view-wishlist">
+          <div class="wishlist-body">
+            <h1 class="wishlist-title">Want to read</h1>
+            <div class="wishlist-empty" id="wishlist-empty">
+              <p class="wishlist-empty-headline">Nothing here yet</p>
+              <p class="wishlist-empty-sub">
+                Export your &ldquo;to-read&rdquo; shelf from
+                <a
+                  href="https://goodreads.com/review/import"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >goodreads.com/review/import</a
+                >
+                and import the CSV here.
+              </p>
+              <button class="wishlist-import-btn" id="btn-goodreads-import">
+                Import Goodreads CSV&hellip;
+              </button>
+            </div>
+            <div class="wishlist-list hidden" id="wishlist-list" role="list"></div>
+          </div>
+        </section>
+
         <!-- Settings view -->
         <section class="view hidden" id="view-settings">
           <div class="settings-body">
@@ -231,23 +255,6 @@
                 <button class="setting-btn" id="btn-calibre-import">Import library&hellip;</button>
               </div>
             </div>
-            <div class="setting-row setting-row-stack">
-              <div class="setting-label">Import Goodreads &ldquo;to-read&rdquo; list</div>
-              <div class="setting-sub">
-                Pick a <code>library_export.csv</code> from
-                <a
-                  href="https://goodreads.com/review/import"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  >goodreads.com/review/import</a
-                >. For now this just shows what was found &mdash; UI for browsing and searching is
-                on the way.
-              </div>
-              <div class="setting-actions">
-                <button class="setting-btn" id="btn-goodreads-import">Import CSV&hellip;</button>
-              </div>
-            </div>
-
             <div class="setting-section-label">General</div>
             <div class="setting-row">
               <div class="setting-label">Server port</div>
@@ -307,6 +314,21 @@
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
           </svg>
           <span>Library</span>
+        </button>
+        <button class="nav-item" data-view="wishlist">
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+          </svg>
+          <span>Wishlist</span>
         </button>
         <button class="nav-item" data-view="transfer">
           <svg
