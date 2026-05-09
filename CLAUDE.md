@@ -19,7 +19,7 @@ npm test -- auth.test.mjs       # single file
 - `src/integrations/` — external integrations (calibre, openlibrary, goodreads, inject-asin).
 - `src/server/routes/` — HTTP route modules (auth, range, download, pair, upload, cover, epub, index).
 - `tsc` compiles `src/` → `out/` preserving structure. `prestart`/`prebuild`/`pretest` hooks run `npm run compile` (rimraf out && tsc).
-- App-rooted paths use `app.getAppPath()` (project root) — not `__dirname` (which inside the compiled main is `out/electron/`).
+- App-rooted paths use `app.getAppPath()` (application root: repo root in dev, `app.asar` bundle in prod) — not `__dirname` (which inside the compiled main is `out/electron/`). Anything resolved this way must be present in `package.json` `build.files` so it's bundled into the asar.
 - `renderer/`. UI (HTML/CSS/vanilla JS, no framework). Loaded via `app.getAppPath()`.
 
 ## Don'ts
