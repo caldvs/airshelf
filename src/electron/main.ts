@@ -343,7 +343,12 @@ async function getOrBuildReaderEpub(book) {
   return p;
 }
 
-const { assertExternalUrl, isSafeExternalScheme, isSafeBasename } = require('../lib/safety.js');
+const {
+  assertExternalUrl,
+  isSafeExternalScheme,
+  isSafeBasename,
+  isLoopbackIp,
+} = require('../lib/safety.js');
 const { buildManifest, validateBackup } = require('../domain/backup.js');
 const {
   tokensMatch,
@@ -1063,11 +1068,9 @@ async function migrateExistingBooks() {
 
 // Loopback gate for write-side endpoints (#37 /upload). The server listens
 // on 0.0.0.0 so the Kindle can read; we don't want to expose mutating
-// routes on the LAN under just the ~20-bit token.
-function isLoopback(addr) {
-  if (typeof addr !== 'string') return false;
-  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
-}
+// routes on the LAN under just the ~20-bit token. Delegates to safety.ts
+// which handles 127.0.0.0/8, every textual form of ::1, and ::ffff:127.x.
+const isLoopback = isLoopbackIp;
 
 // Renders a static mock of the Electron bookshelf UI — used only for the
 // README screenshot. It is served from /screenshot in the same HTTP server.
