@@ -21,8 +21,17 @@ interface HandleCoverArgs {
   subPath: string;
   books: BookEntry[];
   booksDir: string;
-  ifNoneMatch?: string | undefined;
-  ifModifiedSince?: string | undefined;
+  // Node's IncomingMessage.headers[X] is `string | string[] | undefined`
+  // for most headers. Accept the array form so a multi-valued header
+  // (rare for these, but Node won't normalise) doesn't silently flunk
+  // the equality check below and force a fresh 200 every request.
+  ifNoneMatch?: string | string[] | undefined;
+  ifModifiedSince?: string | string[] | undefined;
+}
+
+function firstHeaderValue(v: string | string[] | undefined): string | undefined {
+  if (Array.isArray(v)) return v[0];
+  return v;
 }
 
 interface CoverHeaders304 {
@@ -89,7 +98,10 @@ export function handleCoverRequest({
   const etag = `"${id}-${stat.size}-${Math.floor(stat.mtimeMs)}"`;
   const lastModified = stat.mtime.toUTCString();
 
-  if (ifNoneMatch === etag || ifModifiedSince === lastModified) {
+  if (
+    firstHeaderValue(ifNoneMatch) === etag ||
+    firstHeaderValue(ifModifiedSince) === lastModified
+  ) {
     return {
       status: 304,
       headers: { ETag: etag, 'Cache-Control': CACHE_CONTROL },
