@@ -1950,27 +1950,49 @@ ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
   } catch (e) {
     return { error: e.message };
   }
+  // One controller covers both the fetch timeout and the size-overflow
+  // abort below. Using AbortSignal.timeout alone would leave a slow-loris
+  // connection open until timeout fires; aborting the controller as soon
+  // as we hit the size cap releases the socket immediately.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), COVER_FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Airshelf/0.1' },
-      signal: AbortSignal.timeout(COVER_FETCH_TIMEOUT_MS),
+      signal: controller.signal,
     });
-    if (!res.ok) return { error: `Server returned ${res.status}.` };
+    if (!res.ok) {
+      controller.abort();
+      return { error: `Server returned ${res.status}.` };
+    }
     const ct = res.headers.get('content-type') || '';
-    if (!ct.startsWith('image/')) return { error: `Not an image (got ${ct || 'unknown'}).` };
+    if (!ct.startsWith('image/')) {
+      controller.abort();
+      return { error: `Not an image (got ${ct || 'unknown'}).` };
+    }
     // Reject early if the server declared an oversized payload, so we
     // don't even start allocating Buffers for it.
     const declared = parseInt(res.headers.get('content-length') || '', 10);
     if (Number.isFinite(declared) && declared > MAX_COVER_BYTES) {
+      controller.abort();
       return { error: `Image too large (${declared} bytes, max ${MAX_COVER_BYTES}).` };
     }
+    if (!res.body) {
+      // Some fetch implementations may yield a null body for empty
+      // responses. Treat as "no content" rather than crashing the
+      // for-await with a TypeError.
+      return { error: 'Server returned an empty body.' };
+    }
     // Stream + cap. Servers may omit or lie about Content-Length, so the
-    // mid-stream counter is the authoritative guard.
+    // mid-stream counter is the authoritative guard. Aborting the
+    // controller closes the socket so a slow-loris can't keep us
+    // streaming after we've already decided to stop.
     const chunks = [];
     let received = 0;
     for await (const chunk of res.body) {
       received += chunk.length;
       if (received > MAX_COVER_BYTES) {
+        controller.abort();
         return { error: `Image too large (over ${MAX_COVER_BYTES} bytes).` };
       }
       chunks.push(chunk);
@@ -1979,6 +2001,8 @@ ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
     return await setBookCoverFromBuffer(bookId, buf);
   } catch (e) {
     return { error: `Download failed: ${e.message}` };
+  } finally {
+    clearTimeout(timeoutId);
   }
 });
 
