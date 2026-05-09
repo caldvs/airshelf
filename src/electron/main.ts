@@ -1912,6 +1912,12 @@ async function setBookCoverFromBuffer(bookId, buf) {
   return { ok: true };
 }
 
+// Cap on cover-image downloads. Real book covers are well under 1 MB;
+// 8 MB leaves headroom for high-DPI scans without letting a malicious /
+// misconfigured URL stream gigabytes into the main process and OOM it.
+const MAX_COVER_BYTES = 8 * 1024 * 1024;
+const COVER_FETCH_TIMEOUT_MS = 15_000;
+
 ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
   if (!url || typeof url !== 'string') return { error: 'No URL provided.' };
   // Validates scheme + DNS-resolves to block SSRF against LAN/loopback/
@@ -1922,11 +1928,31 @@ ipcMain.handle('cover:setFromUrl', async (_e, bookId, url) => {
     return { error: e.message };
   }
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': 'Airshelf/0.1' } });
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Airshelf/0.1' },
+      signal: AbortSignal.timeout(COVER_FETCH_TIMEOUT_MS),
+    });
     if (!res.ok) return { error: `Server returned ${res.status}.` };
     const ct = res.headers.get('content-type') || '';
     if (!ct.startsWith('image/')) return { error: `Not an image (got ${ct || 'unknown'}).` };
-    const buf = Buffer.from(await res.arrayBuffer());
+    // Reject early if the server declared an oversized payload, so we
+    // don't even start allocating Buffers for it.
+    const declared = parseInt(res.headers.get('content-length') || '', 10);
+    if (Number.isFinite(declared) && declared > MAX_COVER_BYTES) {
+      return { error: `Image too large (${declared} bytes, max ${MAX_COVER_BYTES}).` };
+    }
+    // Stream + cap. Servers may omit or lie about Content-Length, so the
+    // mid-stream counter is the authoritative guard.
+    const chunks = [];
+    let received = 0;
+    for await (const chunk of res.body) {
+      received += chunk.length;
+      if (received > MAX_COVER_BYTES) {
+        return { error: `Image too large (over ${MAX_COVER_BYTES} bytes).` };
+      }
+      chunks.push(chunk);
+    }
+    const buf = Buffer.concat(chunks);
     return await setBookCoverFromBuffer(bookId, buf);
   } catch (e) {
     return { error: `Download failed: ${e.message}` };
